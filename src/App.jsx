@@ -836,7 +836,17 @@ function DataEntryPage({ meta, onMetaChange }) {
   const [rankTest,  setRankTest]  = useState(testTypes[0]?.id ?? "");
 
   // academyId 바뀌면 draft 초기화
-  const db = meta.dashboards?.[academyId] ?? defaultDashboard(testTypes);
+  const db = (() => {
+    const saved = meta.dashboards?.[academyId]
+      ? JSON.parse(JSON.stringify(meta.dashboards[academyId]))
+      : defaultDashboard(testTypes);
+    // 새로 추가된 종목이 기존 대시보드에 없을 수 있으므로 보완
+    testTypes.forEach(tt => {
+      if (!saved.topPerformers[tt.id]) saved.topPerformers[tt.id] = { name: "", value: "" };
+      if (!saved.rankings[tt.id])      saved.rankings[tt.id]      = [];
+    });
+    return saved;
+  })();
   const cur = draft ?? db;
 
   const setAcademy = (id) => { setAcademyId(id); setDraft(null); };
