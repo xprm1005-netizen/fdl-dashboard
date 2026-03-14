@@ -453,21 +453,23 @@ function DashboardPage({ user, academies, resultFiles, dashboards, testTypes }) 
 
         <div style={S.card}>
           <h3 style={{ margin: "0 0 16px", fontSize: 16, fontWeight: 700, color: "#fff" }}>🏆 테스트별 최고 기록</h3>
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {/* 헤더 */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, padding: "6px 14px", marginBottom: 4 }}>
+            <span style={{ fontSize: 11, color: TEXT2, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5 }}>종목</span>
+            <span style={{ fontSize: 11, color: TEXT2, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5 }}>선수</span>
+            <span style={{ fontSize: 11, color: TEXT2, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, textAlign: "right" }}>기록</span>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             {testTypes.map(tt => {
               const tp = topPerformers[tt.id];
               const hasData = tp?.name || tp?.value;
               return (
-                <div key={tt.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 14px", background: CARD2, borderRadius: 8 }}>
+                <div key={tt.id} style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, alignItems: "center", padding: "10px 14px", background: CARD2, borderRadius: 8 }}>
                   <span style={{ fontSize: 13, color: hasData ? TEXT : TEXT2 }}>{tt.name}</span>
-                  {hasData ? (
-                    <span style={{ fontSize: 13, color: LIME, fontWeight: 700 }}>
-                      {tp.name && <span style={{ color: TEXT, fontWeight: 500, marginRight: 8 }}>{tp.name}</span>}
-                      {tp.value}{tt.unit}
-                    </span>
-                  ) : (
-                    <span style={{ fontSize: 13, color: TEXT2 }}>-</span>
-                  )}
+                  <span style={{ fontSize: 13, color: TEXT, fontWeight: 500 }}>{tp?.name || <span style={{ color: TEXT2 }}>-</span>}</span>
+                  <span style={{ fontSize: 13, color: hasData ? LIME : TEXT2, fontWeight: 700, textAlign: "right" }}>
+                    {tp?.value ? `${tp.value}${tt.unit}` : "-"}
+                  </span>
                 </div>
               );
             })}
