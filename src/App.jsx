@@ -76,7 +76,10 @@ const INITIAL_STATE = {
   testTypes: DEFAULT_TEST_TYPES,
 };
 
-// ── 클라우드 저장 (Vercel API 경유) ───────────────────
+// ── 클라우드 저장 (Supabase 직접 연결) ───────────────
+const SB_URL = "https://jbebrpphywpfbqcsjgq.supabase.co";
+const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpiZWJyYnBwaHl3cGZicWNzamdxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM0NDkwNDksImV4cCI6MjA4OTAyNTA0OX0.lvSOQVvtLZcLieCyiShka0XzzARjzRy4J4yu4xHyRhs";
+const SB_HDR = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, "Content-Type": "application/json" };
 
 function validateMeta(parsed) {
   if (!parsed.users)       parsed.users       = INITIAL_STATE.users;
@@ -86,24 +89,27 @@ function validateMeta(parsed) {
   if (!parsed.testTypes)   parsed.testTypes   = DEFAULT_TEST_TYPES;
 }
 
+// 타임아웃 포함 fetch
+function fetchWithTimeout(url, opts = {}, ms = 10000) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), ms);
+  return fetch(url, { ...opts, signal: ctrl.signal }).finally(() => clearTimeout(timer));
+}
+
 async function loadFromCloud() {
-  const res = await fetch("/api/load");
-  if (!res.ok) throw new Error(`서버 오류 ${res.status}`);
-  const data = await res.json();
-  return data; // null 또는 meta 객체
+  const res = await fetchWithTimeout(`${SB_URL}/rest/v1/app_data?id=eq.fdl-meta`, { headers: SB_HDR });
+  if (!res.ok) throw new Error(`Supabase ${res.status}`);
+  const rows = await res.json();
+  return Array.isArray(rows) && rows.length > 0 ? (rows[0].data ?? null) : null;
 }
 
 async function saveToCloud(data) {
-  const res = await fetch("/api/save", {
+  const res = await fetchWithTimeout(`${SB_URL}/rest/v1/app_data`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(data),
+    headers: { ...SB_HDR, Prefer: "resolution=merge-duplicates,return=minimal" },
+    body: JSON.stringify({ id: "fdl-meta", data }),
   });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || `서버 오류 ${res.status}`);
-  }
-  return true;
+  if (!res.ok) throw new Error(`Supabase ${res.status}: ${await res.text()}`);
 }
 
 async function loadMeta() {
@@ -112,16 +118,14 @@ async function loadMeta() {
     const s = localStorage.getItem("fdl-meta");
     if (s) { local = JSON.parse(s); validateMeta(local); }
   } catch {}
-
   try {
     const cloud = await loadFromCloud();
-    if (cloud && typeof cloud === "object" && !cloud.error) {
+    if (cloud && typeof cloud === "object") {
       validateMeta(cloud);
       localStorage.setItem("fdl-meta", JSON.stringify(cloud));
       return cloud;
     }
   } catch (e) { console.warn("클라우드 로드 실패:", e.message); }
-
   return local ?? INITIAL_STATE;
 }
 
