@@ -76,10 +76,7 @@ const INITIAL_STATE = {
   testTypes: DEFAULT_TEST_TYPES,
 };
 
-// ── Supabase 클라우드 저장 ─────────────────────────────
-const SB_URL = "https://jbebrpphywpfbqcsjgq.supabase.co";
-const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpiZWJyYnBwaHl3cGZicWNzamdxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM0NDkwNDksImV4cCI6MjA4OTAyNTA0OX0.lvSOQVvtLZcLieCyiShka0XzzARjzRy4J4yu4xHyRhs";
-const SB_HEADERS = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, "Content-Type": "application/json" };
+// ── 클라우드 저장 (Vercel API 경유) ───────────────────
 
 function validateMeta(parsed) {
   if (!parsed.users)       parsed.users       = INITIAL_STATE.users;
@@ -89,38 +86,36 @@ function validateMeta(parsed) {
   if (!parsed.testTypes)   parsed.testTypes   = DEFAULT_TEST_TYPES;
 }
 
-// 클라우드에서 불러오기 (결과 또는 에러 문자열 반환)
 async function loadFromCloud() {
-  const res = await fetch(`${SB_URL}/rest/v1/app_data?id=eq.fdl-meta`, { headers: SB_HEADERS });
-  if (!res.ok) throw new Error(`Supabase ${res.status}: ${await res.text()}`);
-  const rows = await res.json();
-  if (!Array.isArray(rows) || rows.length === 0) return null; // 저장된 데이터 없음
-  return rows[0].data ?? null;
+  const res = await fetch("/api/load");
+  if (!res.ok) throw new Error(`서버 오류 ${res.status}`);
+  const data = await res.json();
+  return data; // null 또는 meta 객체
 }
 
-// 클라우드에 저장 (결과 반환)
 async function saveToCloud(data) {
-  const res = await fetch(`${SB_URL}/rest/v1/app_data`, {
+  const res = await fetch("/api/save", {
     method: "POST",
-    headers: { ...SB_HEADERS, Prefer: "resolution=merge-duplicates,return=representation" },
-    body: JSON.stringify({ id: "fdl-meta", data }),
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
   });
-  if (!res.ok) throw new Error(`Supabase ${res.status}: ${await res.text()}`);
-  return await res.json();
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `서버 오류 ${res.status}`);
+  }
+  return true;
 }
 
 async function loadMeta() {
-  // 로컬 캐시
   let local = null;
   try {
     const s = localStorage.getItem("fdl-meta");
     if (s) { local = JSON.parse(s); validateMeta(local); }
   } catch {}
 
-  // 클라우드 우선 로드
   try {
     const cloud = await loadFromCloud();
-    if (cloud) {
+    if (cloud && typeof cloud === "object" && !cloud.error) {
       validateMeta(cloud);
       localStorage.setItem("fdl-meta", JSON.stringify(cloud));
       return cloud;
