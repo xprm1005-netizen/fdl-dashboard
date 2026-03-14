@@ -1310,6 +1310,7 @@ function TestTypesPage({ meta, onMetaChange }) {
 function DownloadPage({ user, meta }) {
   const [downloading, setDownloading] = useState(null);
   const [selectedRound, setSelectedRound] = useState(null);
+  const [readyLinks, setReadyLinks] = useState({}); // { [fileId]: { url, name } }
 
   const myFiles = meta.resultFiles.filter(f => f.academy_id === user.academy_id);
   const rounds  = [...new Set(myFiles.map(f => f.round))].sort();
@@ -1326,17 +1327,20 @@ function DownloadPage({ user, meta }) {
       const mimeMap = { pdf: "application/pdf", jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", zip: "application/zip", "7z": "application/x-7z-compressed", rar: "application/x-rar-compressed" };
       const blob = base64ToBlob(b64, mimeMap[ext] ?? "application/octet-stream");
       const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = file.file_name;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      setTimeout(() => URL.revokeObjectURL(url), 3000);
+      setReadyLinks(prev => ({ ...prev, [file.id]: { url, name: file.file_name } }));
     } catch (e) {
       alert(`다운로드 실패: ${e.message}`);
     }
     setDownloading(null);
+  };
+
+  const handleSave = (fileId) => {
+    const link = readyLinks[fileId];
+    if (!link) return;
+    setTimeout(() => {
+      URL.revokeObjectURL(link.url);
+      setReadyLinks(prev => { const n = { ...prev }; delete n[fileId]; return n; });
+    }, 3000);
   };
 
   return (
@@ -1407,13 +1411,24 @@ function DownloadPage({ user, meta }) {
                   <td style={S.td}>{fmt(f.file_size)}</td>
                   <td style={S.td}>{f.uploaded_at}</td>
                   <td style={{ ...S.td, textAlign: "right" }}>
-                    <button
-                      style={{ ...S.btnSm, opacity: downloading === f.id ? 0.6 : 1 }}
-                      onClick={() => handleDownload(f)}
-                      disabled={downloading === f.id}
-                    >
-                      {downloading === f.id ? "⏳ 준비중..." : "⬇️ 다운로드"}
-                    </button>
+                    {readyLinks[f.id] ? (
+                      <a
+                        href={readyLinks[f.id].url}
+                        download={readyLinks[f.id].name}
+                        onClick={() => handleSave(f.id)}
+                        style={{ ...S.btnSm, display: "inline-block", textDecoration: "none", background: LIME, color: DARK }}
+                      >
+                        💾 저장하기
+                      </a>
+                    ) : (
+                      <button
+                        style={{ ...S.btnSm, opacity: downloading === f.id ? 0.6 : 1 }}
+                        onClick={() => handleDownload(f)}
+                        disabled={downloading === f.id}
+                      >
+                        {downloading === f.id ? "⏳ 준비중..." : "⬇️ 다운로드"}
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}
