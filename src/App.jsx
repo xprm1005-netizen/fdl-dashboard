@@ -1329,8 +1329,10 @@ function DownloadPage({ user, meta }) {
       const a    = document.createElement("a");
       a.href     = url;
       a.download = file.file_name;
+      document.body.appendChild(a);
       a.click();
-      URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
     } catch (e) {
       alert(`다운로드 실패: ${e.message}`);
     }
