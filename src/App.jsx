@@ -115,23 +115,15 @@ async function loadMeta() {
 async function saveMeta(data) {
   // 로컬에 즉시 저장
   localStorage.setItem("fdl-meta", JSON.stringify(data));
-  // 클라우드에 동기화: PATCH 시도 → 행 없으면 INSERT
+  // 클라우드 upsert
   try {
-    const patch = await fetch(`${SB_URL}/rest/v1/app_data?id=eq.fdl-meta`, {
-      method: "PATCH",
-      headers: { ...SB_HEADERS, Prefer: "return=representation" },
-      body: JSON.stringify({ data, updated_at: new Date().toISOString() }),
+    const res = await fetch(`${SB_URL}/rest/v1/app_data`, {
+      method: "POST",
+      headers: { ...SB_HEADERS, Prefer: "resolution=merge-duplicates,return=minimal" },
+      body: JSON.stringify({ id: "fdl-meta", data }),
     });
-    const patched = await patch.json();
-    // PATCH로 업데이트된 행이 없으면 INSERT
-    if (!Array.isArray(patched) || patched.length === 0) {
-      await fetch(`${SB_URL}/rest/v1/app_data`, {
-        method: "POST",
-        headers: { ...SB_HEADERS, Prefer: "return=minimal" },
-        body: JSON.stringify({ id: "fdl-meta", data }),
-      });
-    }
-  } catch (e) { console.warn("클라우드 저장 실패:", e); }
+    if (!res.ok) console.warn("클라우드 저장 실패:", res.status, await res.text());
+  } catch (e) { console.warn("클라우드 저장 오류:", e); }
 }
 
 // ── 스타일 ─────────────────────────────────────────────
@@ -1361,14 +1353,16 @@ export default function App() {
   }, []);
 
   // 초기 데이터 로드 (클라우드)
+  const isFirstLoad = useRef(true);
   useEffect(() => {
     loadMeta().then(data => { setMeta(data); setLoading(false); });
   }, []);
 
-  // meta 변경 시 클라우드 저장 (디바운스)
+  // meta 변경 시 클라우드 저장 (첫 로드는 저장 제외 - 빈 데이터 덮어쓰기 방지)
   const saveTimer = useRef(null);
   useEffect(() => {
     if (!meta) return;
+    if (isFirstLoad.current) { isFirstLoad.current = false; return; } // 초기 로드 시 저장 안 함
     clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => saveMeta(meta), 800);
     return () => clearTimeout(saveTimer.current);
@@ -1380,9 +1374,21 @@ export default function App() {
 
   const [syncing, setSyncing] = useState(false);
   const [syncOk,  setSyncOk]  = useState(false);
+
+  // 강제 저장 (웹→클라우드)
   const handleForceSync = async () => {
     setSyncing(true); setSyncOk(false);
     await saveMeta(meta);
+    setSyncing(false); setSyncOk(true);
+    setTimeout(() => setSyncOk(false), 3000);
+  };
+
+  // 강제 재로드 (클라우드→현재 기기)
+  const handleForceLoad = async () => {
+    setSyncing(true); setSyncOk(false);
+    isFirstLoad.current = true; // 재로드 후 자동저장 방지
+    const data = await loadMeta();
+    setMeta(data);
     setSyncing(false); setSyncOk(true);
     setTimeout(() => setSyncOk(false), 3000);
   };
@@ -1462,15 +1468,13 @@ export default function App() {
                 {meta.academies.find(a => a.id === user.academy_id)?.name}
               </span>
             )}
-            {isAdmin && (
-              <button
-                style={{ ...S.btnGhost, fontSize: 12, padding: "6px 10px", color: syncOk ? LIME : TEXT2, border: `1px solid ${BORDER}`, borderRadius: 8 }}
-                onClick={handleForceSync}
-                disabled={syncing}
-              >
-                {syncing ? "⏳" : syncOk ? "✅ 동기화됨" : "☁️ 동기화"}
-              </button>
-            )}
+            <button
+              style={{ ...S.btnGhost, fontSize: 12, padding: "6px 10px", color: syncOk ? LIME : TEXT2, border: `1px solid ${BORDER}`, borderRadius: 8 }}
+              onClick={isAdmin ? handleForceSync : handleForceLoad}
+              disabled={syncing}
+            >
+              {syncing ? "⏳" : syncOk ? (isAdmin ? "✅ 저장됨" : "✅ 불러옴") : (isAdmin ? "☁️ 저장" : "🔄 새로고침")}
+            </button>
             {!isMobile && <span style={{ fontSize: 13, color: TEXT2 }}>{new Date().getFullYear()}년</span>}
             {isMobile && (
               <button style={{ ...S.btnGhost, color: RED, fontSize: 13, padding: "6px 10px" }} onClick={() => { setUser(null); setPage("dashboard"); }}>
