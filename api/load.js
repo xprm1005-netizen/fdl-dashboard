@@ -1,13 +1,22 @@
 const https = require("https");
 
-const SB_HOST = "jbebrpphywpfbqcsjgq.supabase.co";
-const SB_KEY  = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpiZWJyYnBwaHl3cGZicWNzamdxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM0NDkwNDksImV4cCI6MjA4OTAyNTA0OX0.lvSOQVvtLZcLieCyiShka0XzzARjzRy4J4yu4xHyRhs";
+const BIN_ID     = "69b4f57baa77b81da9e2c4ad";
+const MASTER_KEY = "$2a$10$XXKBE3KoEEZGb2KQoLME4uPbKKJoq1tSdfcsSckzH5RiITZqPCgyq";
 
-function get(path) {
+function get() {
   return new Promise((resolve, reject) => {
     const req = https.request(
-      { hostname: SB_HOST, path, method: "GET", headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` } },
-      (res) => { let b = ""; res.on("data", c => b += c); res.on("end", () => resolve({ ok: res.statusCode < 400, body: b })); }
+      {
+        hostname: "api.jsonbin.io",
+        path: `/v3/b/${BIN_ID}/latest`,
+        method: "GET",
+        headers: { "X-Master-Key": MASTER_KEY },
+      },
+      (res) => {
+        let b = "";
+        res.on("data", (c) => (b += c));
+        res.on("end", () => resolve({ ok: res.statusCode < 400, body: b }));
+      }
     );
     req.on("error", reject);
     req.end();
@@ -16,10 +25,11 @@ function get(path) {
 
 module.exports = async (_req, res) => {
   try {
-    const { ok, body } = await get("/rest/v1/app_data?id=eq.fdl-meta");
+    const { ok, body } = await get();
     if (!ok) return res.status(502).json({ error: body });
-    const rows = JSON.parse(body);
-    res.status(200).json(Array.isArray(rows) && rows[0] ? (rows[0].data ?? null) : null);
+    const parsed = JSON.parse(body);
+    const data = parsed?.record ?? null;
+    res.status(200).json(data && data.init === true ? null : data);
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
