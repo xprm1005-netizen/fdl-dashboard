@@ -34,31 +34,47 @@ function base64ToBlob(b64, mime = "application/pdf") {
   for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
   return new Blob([arr], { type: mime });
 }
+const CHUNK_SIZE = 72 * 1024; // 72KB chars → well under JSONBin 100KB limit
+
 async function cloudUploadFile(file) {
   const b64 = await fileToBase64(file);
-  const res = await fetch("https://api.jsonbin.io/v3/b", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-Master-Key": JSONBIN_MASTER_KEY },
-    body: JSON.stringify({ _data: b64 }),
-  });
-  if (!res.ok) throw new Error(`업로드 실패 (${res.status})`);
-  const json = await res.json();
-  return json.metadata.id;
+  const chunks = [];
+  for (let i = 0; i < b64.length; i += CHUNK_SIZE) {
+    chunks.push(b64.slice(i, i + CHUNK_SIZE));
+  }
+  const binIds = await Promise.all(chunks.map(async (chunk) => {
+    const res = await fetch("/api/file-save", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ _data: chunk }),
+    });
+    if (!res.ok) throw new Error(`업로드 실패 (${res.status})`);
+    const json = await res.json();
+    return json.binId;
+  }));
+  return binIds; // array of bin IDs
 }
-async function cloudDownloadFile(binId) {
-  const res = await fetch(`https://api.jsonbin.io/v3/b/${binId}/latest`, {
-    headers: { "X-Master-Key": JSONBIN_MASTER_KEY },
-  });
-  if (!res.ok) return null;
-  const json = await res.json();
-  return json?.record?._data ?? null;
+async function cloudDownloadFile(fileRef) {
+  const binIds = Array.isArray(fileRef) ? fileRef : (fileRef ? [fileRef] : []);
+  if (binIds.length === 0) return null;
+  const chunks = await Promise.all(binIds.map(async (binId) => {
+    const res = await fetch(`/api/file-load?binId=${binId}`);
+    if (!res.ok) return null;
+    const json = await res.json();
+    return json?.data ?? null;
+  }));
+  if (chunks.some(c => c === null)) return null;
+  return chunks.join("");
 }
-async function cloudDeleteFile(binId) {
-  if (!binId) return;
-  await fetch(`https://api.jsonbin.io/v3/b/${binId}`, {
-    method: "DELETE",
-    headers: { "X-Master-Key": JSONBIN_MASTER_KEY },
-  });
+async function cloudDeleteFile(fileRef) {
+  const binIds = Array.isArray(fileRef) ? fileRef : (fileRef ? [fileRef] : []);
+  if (binIds.length === 0) return;
+  await Promise.all(binIds.map(binId =>
+    fetch(`https://api.jsonbin.io/v3/b/${binId}`, {
+      method: "DELETE",
+      headers: { "X-Master-Key": JSONBIN_MASTER_KEY },
+    })
+  ));
 }
 
 // ── 테스트 종목 기본값 ─────────────────────────────────
@@ -729,24 +745,25 @@ function UploadPage({ meta, onUpload, onDeleteFile }) {
   const handleDelete = async (f) => {
     if (!confirm(`"${f.file_name}" 파일을 삭제하시겠습니까?`)) return;
     setDeleting(f.id);
-    await cloudDeleteFile(f.binId);
+    await cloudDeleteFile(f.binIds ?? f.binId);
     onDeleteFile(f.id);
     setDeleting(null);
   };
 
   const handleFiles = async (files) => {
-    const pdfs = [...files].filter(f => f.name.toLowerCase().endsWith(".pdf"));
-    if (!pdfs.length) { setError("PDF 파일만 업로드 가능합니다."); return; }
-    const oversized = [...pdfs].filter(f => f.size > 5 * 1024 * 1024);
+    const ALLOWED_EXT = [".pdf", ".jpg", ".jpeg", ".png", ".zip", ".7z", ".rar"];
+    const allowed = [...files].filter(f => ALLOWED_EXT.some(ext => f.name.toLowerCase().endsWith(ext)));
+    if (!allowed.length) { setError("PDF, JPG, PNG, ZIP, 7Z, RAR 파일만 업로드 가능합니다."); return; }
+    const oversized = [...allowed].filter(f => f.size > 5 * 1024 * 1024);
     if (oversized.length) { setError(`파일 크기는 5MB 이하만 지원합니다: ${oversized.map(f => f.name).join(", ")}`); return; }
     setUploading(true); setError(""); setSuccess("");
     try {
-      for (const file of pdfs) {
+      for (const file of allowed) {
         const id    = `file_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-        const binId = await cloudUploadFile(file);
+        const binIds = await cloudUploadFile(file);
         const fileMeta = {
           id,
-          binId,
+          binIds,
           academy_id:  academyId,
           file_name:   file.name,
           file_size:   file.size,
@@ -757,7 +774,7 @@ function UploadPage({ meta, onUpload, onDeleteFile }) {
         };
         onUpload(fileMeta);
       }
-      setSuccess(`${pdfs.length}개 파일이 업로드되었습니다.`);
+      setSuccess(`${allowed.length}개 파일이 업로드되었습니다.`);
     } catch (e) {
       setError(`업로드 오류: ${e.message}`);
     }
@@ -798,7 +815,7 @@ function UploadPage({ meta, onUpload, onDeleteFile }) {
           </div>
         </div>
 
-        <input ref={fileRef} type="file" accept=".pdf" multiple style={{ display: "none" }} onChange={e => handleFiles(e.target.files)} />
+        <input ref={fileRef} type="file" accept=".pdf,.jpg,.jpeg,.png,.zip,.7z,.rar" multiple style={{ display: "none" }} onChange={e => handleFiles(e.target.files)} />
 
         <div
           onDragOver={e => { e.preventDefault(); setDragging(true); }}
@@ -1302,10 +1319,12 @@ function DownloadPage({ user, meta }) {
   const handleDownload = async (file) => {
     setDownloading(file.id);
     try {
-      if (!file.binId) { alert("이 파일은 구버전으로 업로드되었습니다. 관리자가 다시 업로드해야 합니다."); setDownloading(null); return; }
-      const b64 = await cloudDownloadFile(file.binId);
+      if (!file.binIds && !file.binId) { alert("이 파일은 구버전으로 업로드되었습니다. 관리자가 다시 업로드해야 합니다."); setDownloading(null); return; }
+      const b64 = await cloudDownloadFile(file.binIds ?? file.binId);
       if (!b64) { alert("파일을 찾을 수 없습니다. 관리자에게 문의하세요."); setDownloading(null); return; }
-      const blob = base64ToBlob(b64);
+      const ext = file.file_name.split(".").pop().toLowerCase();
+      const mimeMap = { pdf: "application/pdf", jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", zip: "application/zip", "7z": "application/x-7z-compressed", rar: "application/x-rar-compressed" };
+      const blob = base64ToBlob(b64, mimeMap[ext] ?? "application/octet-stream");
       const url  = URL.createObjectURL(blob);
       const a    = document.createElement("a");
       a.href     = url;
