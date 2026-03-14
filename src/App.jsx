@@ -76,11 +76,7 @@ const INITIAL_STATE = {
   testTypes: DEFAULT_TEST_TYPES,
 };
 
-// ── 클라우드 저장 (Supabase 직접 연결) ───────────────
-const SB_URL = "https://jbebrpphywpfbqcsjgq.supabase.co";
-const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpiZWJyYnBwaHl3cGZicWNzamdxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM0NDkwNDksImV4cCI6MjA4OTAyNTA0OX0.lvSOQVvtLZcLieCyiShka0XzzARjzRy4J4yu4xHyRhs";
-const SB_HDR = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, "Content-Type": "application/json" };
-
+// ── 클라우드 저장 (Vercel API 서버 경유) ──────────────
 function validateMeta(parsed) {
   if (!parsed.users)       parsed.users       = INITIAL_STATE.users;
   if (!parsed.players)     parsed.players     = [];
@@ -89,27 +85,19 @@ function validateMeta(parsed) {
   if (!parsed.testTypes)   parsed.testTypes   = DEFAULT_TEST_TYPES;
 }
 
-// 타임아웃 포함 fetch
-function fetchWithTimeout(url, opts = {}, ms = 10000) {
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), ms);
-  return fetch(url, { ...opts, signal: ctrl.signal }).finally(() => clearTimeout(timer));
-}
-
 async function loadFromCloud() {
-  const res = await fetchWithTimeout(`${SB_URL}/rest/v1/app_data?id=eq.fdl-meta`, { headers: SB_HDR });
-  if (!res.ok) throw new Error(`Supabase ${res.status}`);
-  const rows = await res.json();
-  return Array.isArray(rows) && rows.length > 0 ? (rows[0].data ?? null) : null;
+  const res = await fetch("/api/load");
+  if (!res.ok) throw new Error(`load ${res.status}`);
+  return await res.json(); // null or object
 }
 
 async function saveToCloud(data) {
-  const res = await fetchWithTimeout(`${SB_URL}/rest/v1/app_data`, {
+  const res = await fetch("/api/save", {
     method: "POST",
-    headers: { ...SB_HDR, Prefer: "resolution=merge-duplicates,return=minimal" },
-    body: JSON.stringify({ id: "fdl-meta", data }),
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
   });
-  if (!res.ok) throw new Error(`Supabase ${res.status}: ${await res.text()}`);
+  if (!res.ok) throw new Error(`save ${res.status}`);
 }
 
 async function loadMeta() {
