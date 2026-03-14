@@ -735,8 +735,8 @@ function UploadPage({ meta, onUpload, onDeleteFile }) {
   const handleFiles = async (files) => {
     const pdfs = [...files].filter(f => f.name.toLowerCase().endsWith(".pdf"));
     if (!pdfs.length) { setError("PDF 파일만 업로드 가능합니다."); return; }
-    const oversized = [...pdfs].filter(f => f.size > 2 * 1024 * 1024);
-    if (oversized.length) { setError(`파일 크기는 2MB 이하만 지원합니다: ${oversized.map(f => f.name).join(", ")}`); return; }
+    const oversized = [...pdfs].filter(f => f.size > 3 * 1024 * 1024);
+    if (oversized.length) { setError(`파일 크기는 3MB 이하만 지원합니다: ${oversized.map(f => f.name).join(", ")}`); return; }
     setUploading(true); setError(""); setSuccess("");
     try {
       for (const file of pdfs) {
@@ -814,7 +814,7 @@ function UploadPage({ meta, onUpload, onDeleteFile }) {
             <div>
               <div style={{ fontSize: 48, marginBottom: 12 }}>📁</div>
               <div style={{ fontSize: 16, fontWeight: 600, color: "#fff", marginBottom: 8 }}>PDF를 드래그하거나 클릭하여 업로드</div>
-              <div style={{ fontSize: 13, color: TEXT2 }}>여러 파일 동시 업로드 가능 · 최대 50MB</div>
+              <div style={{ fontSize: 13, color: TEXT2 }}>여러 파일 동시 업로드 가능 · 최대 3MB</div>
             </div>
           )}
         </div>
