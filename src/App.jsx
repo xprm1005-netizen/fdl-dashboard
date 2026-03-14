@@ -36,20 +36,22 @@ function base64ToBlob(b64, mime = "application/pdf") {
 }
 async function cloudUploadFile(file) {
   const b64 = await fileToBase64(file);
-  const res = await fetch("/api/file-save", {
+  const res = await fetch("https://api.jsonbin.io/v3/b", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", "X-Master-Key": JSONBIN_MASTER_KEY },
     body: JSON.stringify({ _data: b64 }),
   });
-  if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || `업로드 실패 (${res.status})`); }
+  if (!res.ok) throw new Error(`업로드 실패 (${res.status})`);
   const json = await res.json();
-  return json.binId;
+  return json.metadata.id;
 }
 async function cloudDownloadFile(binId) {
-  const res = await fetch(`/api/file-load?binId=${binId}`);
+  const res = await fetch(`https://api.jsonbin.io/v3/b/${binId}/latest`, {
+    headers: { "X-Master-Key": JSONBIN_MASTER_KEY },
+  });
   if (!res.ok) return null;
   const json = await res.json();
-  return json?.data ?? null;
+  return json?.record?._data ?? null;
 }
 async function cloudDeleteFile(binId) {
   if (!binId) return;
@@ -735,8 +737,8 @@ function UploadPage({ meta, onUpload, onDeleteFile }) {
   const handleFiles = async (files) => {
     const pdfs = [...files].filter(f => f.name.toLowerCase().endsWith(".pdf"));
     if (!pdfs.length) { setError("PDF 파일만 업로드 가능합니다."); return; }
-    const oversized = [...pdfs].filter(f => f.size > 3 * 1024 * 1024);
-    if (oversized.length) { setError(`파일 크기는 3MB 이하만 지원합니다: ${oversized.map(f => f.name).join(", ")}`); return; }
+    const oversized = [...pdfs].filter(f => f.size > 5 * 1024 * 1024);
+    if (oversized.length) { setError(`파일 크기는 5MB 이하만 지원합니다: ${oversized.map(f => f.name).join(", ")}`); return; }
     setUploading(true); setError(""); setSuccess("");
     try {
       for (const file of pdfs) {
@@ -814,7 +816,7 @@ function UploadPage({ meta, onUpload, onDeleteFile }) {
             <div>
               <div style={{ fontSize: 48, marginBottom: 12 }}>📁</div>
               <div style={{ fontSize: 16, fontWeight: 600, color: "#fff", marginBottom: 8 }}>PDF를 드래그하거나 클릭하여 업로드</div>
-              <div style={{ fontSize: 13, color: TEXT2 }}>여러 파일 동시 업로드 가능 · 최대 3MB</div>
+              <div style={{ fontSize: 13, color: TEXT2 }}>여러 파일 동시 업로드 가능 · 최대 5MB</div>
             </div>
           )}
         </div>
