@@ -36,22 +36,20 @@ function base64ToBlob(b64, mime = "application/pdf") {
 }
 async function cloudUploadFile(file) {
   const b64 = await fileToBase64(file);
-  const res = await fetch("https://api.jsonbin.io/v3/b", {
+  const res = await fetch("/api/file-save", {
     method: "POST",
-    headers: { "Content-Type": "application/json", "X-Master-Key": JSONBIN_MASTER_KEY, "X-Bin-Private": "true" },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ _data: b64 }),
   });
-  if (!res.ok) throw new Error(`파일 업로드 실패 (${res.status})`);
+  if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || `업로드 실패 (${res.status})`); }
   const json = await res.json();
-  return json.metadata.id;
+  return json.binId;
 }
 async function cloudDownloadFile(binId) {
-  const res = await fetch(`https://api.jsonbin.io/v3/b/${binId}/latest`, {
-    headers: { "X-Master-Key": JSONBIN_MASTER_KEY },
-  });
+  const res = await fetch(`/api/file-load?binId=${binId}`);
   if (!res.ok) return null;
   const json = await res.json();
-  return json?.record?._data ?? null;
+  return json?.data ?? null;
 }
 async function cloudDeleteFile(binId) {
   if (!binId) return;
@@ -737,8 +735,8 @@ function UploadPage({ meta, onUpload, onDeleteFile }) {
   const handleFiles = async (files) => {
     const pdfs = [...files].filter(f => f.name.toLowerCase().endsWith(".pdf"));
     if (!pdfs.length) { setError("PDF 파일만 업로드 가능합니다."); return; }
-    const oversized = [...pdfs].filter(f => f.size > 4 * 1024 * 1024);
-    if (oversized.length) { setError(`파일 크기는 4MB 이하만 지원합니다: ${oversized.map(f => f.name).join(", ")}`); return; }
+    const oversized = [...pdfs].filter(f => f.size > 2 * 1024 * 1024);
+    if (oversized.length) { setError(`파일 크기는 2MB 이하만 지원합니다: ${oversized.map(f => f.name).join(", ")}`); return; }
     setUploading(true); setError(""); setSuccess("");
     try {
       for (const file of pdfs) {
