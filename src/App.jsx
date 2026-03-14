@@ -115,13 +115,22 @@ async function loadMeta() {
 async function saveMeta(data) {
   // 로컬에 즉시 저장
   localStorage.setItem("fdl-meta", JSON.stringify(data));
-  // 클라우드에 동기화
+  // 클라우드에 동기화: PATCH 시도 → 행 없으면 INSERT
   try {
-    await fetch(`${SB_URL}/rest/v1/app_data`, {
-      method: "POST",
-      headers: { ...SB_HEADERS, Prefer: "resolution=merge-duplicates" },
-      body: JSON.stringify({ id: "fdl-meta", data }),
+    const patch = await fetch(`${SB_URL}/rest/v1/app_data?id=eq.fdl-meta`, {
+      method: "PATCH",
+      headers: { ...SB_HEADERS, Prefer: "return=representation" },
+      body: JSON.stringify({ data, updated_at: new Date().toISOString() }),
     });
+    const patched = await patch.json();
+    // PATCH로 업데이트된 행이 없으면 INSERT
+    if (!Array.isArray(patched) || patched.length === 0) {
+      await fetch(`${SB_URL}/rest/v1/app_data`, {
+        method: "POST",
+        headers: { ...SB_HEADERS, Prefer: "return=minimal" },
+        body: JSON.stringify({ id: "fdl-meta", data }),
+      });
+    }
   } catch (e) { console.warn("클라우드 저장 실패:", e); }
 }
 
@@ -1369,6 +1378,15 @@ export default function App() {
     setMeta(prev => ({ ...prev, resultFiles: [...prev.resultFiles, fileMeta] }));
   };
 
+  const [syncing, setSyncing] = useState(false);
+  const [syncOk,  setSyncOk]  = useState(false);
+  const handleForceSync = async () => {
+    setSyncing(true); setSyncOk(false);
+    await saveMeta(meta);
+    setSyncing(false); setSyncOk(true);
+    setTimeout(() => setSyncOk(false), 3000);
+  };
+
   if (loading) return (
     <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: DARK, flexDirection: "column", gap: 16 }}>
       <div style={{ width: 40, height: 40, background: LIME, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 900, color: DARK, fontSize: 16 }}>FDL</div>
@@ -1443,6 +1461,15 @@ export default function App() {
               <span style={{ ...S.badge, background: `${BLUE}15`, color: BLUE, fontSize: isMobile ? 11 : 12 }}>
                 {meta.academies.find(a => a.id === user.academy_id)?.name}
               </span>
+            )}
+            {isAdmin && (
+              <button
+                style={{ ...S.btnGhost, fontSize: 12, padding: "6px 10px", color: syncOk ? LIME : TEXT2, border: `1px solid ${BORDER}`, borderRadius: 8 }}
+                onClick={handleForceSync}
+                disabled={syncing}
+              >
+                {syncing ? "⏳" : syncOk ? "✅ 동기화됨" : "☁️ 동기화"}
+              </button>
             )}
             {!isMobile && <span style={{ fontSize: 13, color: TEXT2 }}>{new Date().getFullYear()}년</span>}
             {isMobile && (
