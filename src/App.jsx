@@ -76,7 +76,10 @@ const INITIAL_STATE = {
   testTypes: DEFAULT_TEST_TYPES,
 };
 
-// ── 클라우드 저장 (Vercel API 서버 경유) ──────────────
+// ── 클라우드 저장 (JSONBin.io 직접 호출) ──────────────
+const JSONBIN_BIN_ID     = "69b4f57baa77b81da9e2c4ad";
+const JSONBIN_MASTER_KEY = "$2a$10$XXKBE3KoEEZGb2KQoLME4uPbKKJoq1tSdfcsSckzH5RiITZqPCgyq";
+
 function validateMeta(parsed) {
   if (!parsed.users)       parsed.users       = INITIAL_STATE.users;
   if (!parsed.players)     parsed.players     = [];
@@ -86,15 +89,19 @@ function validateMeta(parsed) {
 }
 
 async function loadFromCloud() {
-  const res = await fetch("/api/load");
+  const res = await fetch(`https://api.jsonbin.io/v3/b/${JSONBIN_BIN_ID}/latest`, {
+    headers: { "X-Master-Key": JSONBIN_MASTER_KEY },
+  });
   if (!res.ok) throw new Error(`load ${res.status}`);
-  return await res.json(); // null or object
+  const json = await res.json();
+  const data = json?.record ?? null;
+  return data && data.init === true ? null : data;
 }
 
 async function saveToCloud(data) {
-  const res = await fetch("/api/save", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
+  const res = await fetch(`https://api.jsonbin.io/v3/b/${JSONBIN_BIN_ID}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", "X-Master-Key": JSONBIN_MASTER_KEY },
     body: JSON.stringify(data),
   });
   if (!res.ok) throw new Error(`save ${res.status}`);
