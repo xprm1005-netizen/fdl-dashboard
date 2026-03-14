@@ -89,41 +89,50 @@ function validateMeta(parsed) {
   if (!parsed.testTypes)   parsed.testTypes   = DEFAULT_TEST_TYPES;
 }
 
+// 클라우드에서 불러오기 (결과 또는 에러 문자열 반환)
+async function loadFromCloud() {
+  const res = await fetch(`${SB_URL}/rest/v1/app_data?id=eq.fdl-meta`, { headers: SB_HEADERS });
+  if (!res.ok) throw new Error(`Supabase ${res.status}: ${await res.text()}`);
+  const rows = await res.json();
+  if (!Array.isArray(rows) || rows.length === 0) return null; // 저장된 데이터 없음
+  return rows[0].data ?? null;
+}
+
+// 클라우드에 저장 (결과 반환)
+async function saveToCloud(data) {
+  const res = await fetch(`${SB_URL}/rest/v1/app_data`, {
+    method: "POST",
+    headers: { ...SB_HEADERS, Prefer: "resolution=merge-duplicates,return=representation" },
+    body: JSON.stringify({ id: "fdl-meta", data }),
+  });
+  if (!res.ok) throw new Error(`Supabase ${res.status}: ${await res.text()}`);
+  return await res.json();
+}
+
 async function loadMeta() {
-  // 1. 로컬 캐시 (빠른 초기 표시용)
+  // 로컬 캐시
   let local = null;
   try {
     const s = localStorage.getItem("fdl-meta");
     if (s) { local = JSON.parse(s); validateMeta(local); }
   } catch {}
 
-  // 2. 클라우드에서 최신 데이터 로드
+  // 클라우드 우선 로드
   try {
-    const res = await fetch(`${SB_URL}/rest/v1/app_data?id=eq.fdl-meta&select=data`, { headers: SB_HEADERS });
-    const rows = await res.json();
-    if (Array.isArray(rows) && rows.length > 0) {
-      const cloud = rows[0].data;
+    const cloud = await loadFromCloud();
+    if (cloud) {
       validateMeta(cloud);
       localStorage.setItem("fdl-meta", JSON.stringify(cloud));
       return cloud;
     }
-  } catch (e) { console.warn("클라우드 로드 실패, 로컬 사용:", e); }
+  } catch (e) { console.warn("클라우드 로드 실패:", e.message); }
 
   return local ?? INITIAL_STATE;
 }
 
 async function saveMeta(data) {
-  // 로컬에 즉시 저장
   localStorage.setItem("fdl-meta", JSON.stringify(data));
-  // 클라우드 upsert
-  try {
-    const res = await fetch(`${SB_URL}/rest/v1/app_data`, {
-      method: "POST",
-      headers: { ...SB_HEADERS, Prefer: "resolution=merge-duplicates,return=minimal" },
-      body: JSON.stringify({ id: "fdl-meta", data }),
-    });
-    if (!res.ok) console.warn("클라우드 저장 실패:", res.status, await res.text());
-  } catch (e) { console.warn("클라우드 저장 오류:", e); }
+  try { await saveToCloud(data); } catch (e) { console.warn("클라우드 저장 실패:", e.message); }
 }
 
 // ── 스타일 ─────────────────────────────────────────────
@@ -1372,25 +1381,38 @@ export default function App() {
     setMeta(prev => ({ ...prev, resultFiles: [...prev.resultFiles, fileMeta] }));
   };
 
-  const [syncing, setSyncing] = useState(false);
-  const [syncOk,  setSyncOk]  = useState(false);
+  const [syncMsg, setSyncMsg] = useState(""); // "", "saving", "saved", "loading", "loaded", "error:..."
+
+  const showSync = (msg, delay = 4000) => {
+    setSyncMsg(msg);
+    if (delay) setTimeout(() => setSyncMsg(""), delay);
+  };
 
   // 강제 저장 (웹→클라우드)
   const handleForceSync = async () => {
-    setSyncing(true); setSyncOk(false);
-    await saveMeta(meta);
-    setSyncing(false); setSyncOk(true);
-    setTimeout(() => setSyncOk(false), 3000);
+    showSync("saving", 0);
+    try {
+      await saveToCloud(meta);
+      localStorage.setItem("fdl-meta", JSON.stringify(meta));
+      showSync("saved");
+    } catch (e) { showSync(`error:${e.message}`); }
   };
 
   // 강제 재로드 (클라우드→현재 기기)
   const handleForceLoad = async () => {
-    setSyncing(true); setSyncOk(false);
-    isFirstLoad.current = true; // 재로드 후 자동저장 방지
-    const data = await loadMeta();
-    setMeta(data);
-    setSyncing(false); setSyncOk(true);
-    setTimeout(() => setSyncOk(false), 3000);
+    showSync("loading", 0);
+    try {
+      const cloud = await loadFromCloud();
+      if (cloud) {
+        validateMeta(cloud);
+        localStorage.setItem("fdl-meta", JSON.stringify(cloud));
+        isFirstLoad.current = true;
+        setMeta(cloud);
+        showSync("loaded");
+      } else {
+        showSync("error:클라우드에 저장된 데이터가 없습니다");
+      }
+    } catch (e) { showSync(`error:${e.message}`); }
   };
 
   if (loading) return (
@@ -1419,6 +1441,12 @@ export default function App() {
 
   return (
     <MobileCtx.Provider value={isMobile}>
+    {/* 오류 토스트 */}
+    {syncMsg.startsWith("error") && (
+      <div style={{ position: "fixed", top: 16, left: "50%", transform: "translateX(-50%)", background: RED, color: "#fff", padding: "12px 20px", borderRadius: 10, fontSize: 13, fontWeight: 600, zIndex: 9999, maxWidth: "90vw", textAlign: "center", boxShadow: "0 4px 20px rgba(0,0,0,0.4)" }}>
+        ❌ {syncMsg.replace("error:", "")}
+      </div>
+    )}
     <div style={S.app}>
       {/* 사이드바 (데스크탑만) */}
       {!isMobile && (
@@ -1469,11 +1497,12 @@ export default function App() {
               </span>
             )}
             <button
-              style={{ ...S.btnGhost, fontSize: 12, padding: "6px 10px", color: syncOk ? LIME : TEXT2, border: `1px solid ${BORDER}`, borderRadius: 8 }}
+              style={{ ...S.btnGhost, fontSize: 12, padding: "6px 10px", color: syncMsg.startsWith("error") ? RED : syncMsg === "saved" || syncMsg === "loaded" ? LIME : TEXT2, border: `1px solid ${BORDER}`, borderRadius: 8, maxWidth: isMobile ? 120 : 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
               onClick={isAdmin ? handleForceSync : handleForceLoad}
-              disabled={syncing}
+              disabled={syncMsg === "saving" || syncMsg === "loading"}
+              title={syncMsg.startsWith("error") ? syncMsg.replace("error:", "") : ""}
             >
-              {syncing ? "⏳" : syncOk ? (isAdmin ? "✅ 저장됨" : "✅ 불러옴") : (isAdmin ? "☁️ 저장" : "🔄 새로고침")}
+              {syncMsg === "saving" ? "⏳ 저장중..." : syncMsg === "loading" ? "⏳ 로딩중..." : syncMsg === "saved" ? "✅ 저장됨" : syncMsg === "loaded" ? "✅ 불러옴" : syncMsg.startsWith("error") ? "❌ 오류" : isAdmin ? "☁️ 저장" : "🔄 새로고침"}
             </button>
             {!isMobile && <span style={{ fontSize: 13, color: TEXT2 }}>{new Date().getFullYear()}년</span>}
             {isMobile && (
