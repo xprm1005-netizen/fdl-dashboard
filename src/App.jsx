@@ -1326,13 +1326,19 @@ function DownloadPage({ user, meta }) {
       const mimeMap = { pdf: "application/pdf", jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", zip: "application/zip", "7z": "application/x-7z-compressed", rar: "application/x-rar-compressed" };
       const blob = base64ToBlob(b64, mimeMap[ext] ?? "application/octet-stream");
       const url  = URL.createObjectURL(blob);
-      const a    = document.createElement("a");
-      a.href     = url;
-      a.download = file.file_name;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      const isMobileDevice = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+      if (isMobileDevice) {
+        window.open(url, "_blank");
+        setTimeout(() => URL.revokeObjectURL(url), 5000);
+      } else {
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = file.file_name;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      }
     } catch (e) {
       alert(`다운로드 실패: ${e.message}`);
     }
