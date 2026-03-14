@@ -19,35 +19,39 @@ const BLUE   = "#4DA6FF";
 const PURPLE = "#A855F7";
 const ORANGE = "#FF9F43";
 
-// ── IndexedDB (파일 실제 데이터 저장) ─────────────────
-const DB_NAME = "fdl-files-db";
-const DB_VER  = 1;
-
-function openDB() {
+// ── 클라우드 파일 저장 (JSONBin per-file bin) ──────────
+function fileToBase64(file) {
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, DB_VER);
-    req.onupgradeneeded = e => e.target.result.createObjectStore("files", { keyPath: "id" });
-    req.onsuccess = e => resolve(e.target.result);
-    req.onerror   = e => reject(e.target.error);
+    const reader = new FileReader();
+    reader.onload  = e => resolve(e.target.result.split(",")[1]);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
   });
 }
-async function dbSaveFile(id, blob) {
-  const db = await openDB();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction("files", "readwrite");
-    tx.objectStore("files").put({ id, blob });
-    tx.oncomplete = resolve;
-    tx.onerror = e => reject(e.target.error);
-  });
+function base64ToBlob(b64, mime = "application/pdf") {
+  const bytes = atob(b64);
+  const arr   = new Uint8Array(bytes.length);
+  for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
+  return new Blob([arr], { type: mime });
 }
-async function dbGetFile(id) {
-  const db = await openDB();
-  return new Promise((resolve, reject) => {
-    const tx  = db.transaction("files", "readonly");
-    const req = tx.objectStore("files").get(id);
-    req.onsuccess = e => resolve(e.target.result?.blob ?? null);
-    req.onerror   = e => reject(e.target.error);
+async function cloudUploadFile(file) {
+  const b64 = await fileToBase64(file);
+  const res = await fetch("https://api.jsonbin.io/v3/b", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Master-Key": JSONBIN_MASTER_KEY, "X-Bin-Private": "true" },
+    body: JSON.stringify({ _data: b64 }),
   });
+  if (!res.ok) throw new Error(`파일 업로드 실패 (${res.status})`);
+  const json = await res.json();
+  return json.metadata.id;
+}
+async function cloudDownloadFile(binId) {
+  const res = await fetch(`https://api.jsonbin.io/v3/b/${binId}/latest`, {
+    headers: { "X-Master-Key": JSONBIN_MASTER_KEY },
+  });
+  if (!res.ok) return null;
+  const json = await res.json();
+  return json?.record?._data ?? null;
 }
 
 // ── 테스트 종목 기본값 ─────────────────────────────────
@@ -703,14 +707,16 @@ function UploadPage({ meta, onUpload }) {
   const handleFiles = async (files) => {
     const pdfs = [...files].filter(f => f.name.toLowerCase().endsWith(".pdf"));
     if (!pdfs.length) { setError("PDF 파일만 업로드 가능합니다."); return; }
+    const oversized = [...pdfs].filter(f => f.size > 4 * 1024 * 1024);
+    if (oversized.length) { setError(`파일 크기는 4MB 이하만 지원합니다: ${oversized.map(f => f.name).join(", ")}`); return; }
     setUploading(true); setError(""); setSuccess("");
     try {
       for (const file of pdfs) {
-        const id   = `file_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-        const blob = new Blob([await file.arrayBuffer()], { type: "application/pdf" });
-        await dbSaveFile(id, blob);
-        const meta = {
+        const id    = `file_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+        const binId = await cloudUploadFile(file);
+        const fileMeta = {
           id,
+          binId,
           academy_id:  academyId,
           file_name:   file.name,
           file_size:   file.size,
@@ -719,7 +725,7 @@ function UploadPage({ meta, onUpload }) {
           date,
           uploaded_at: new Date().toLocaleString("ko-KR"),
         };
-        onUpload(meta);
+        onUpload(fileMeta);
       }
       setSuccess(`${pdfs.length}개 파일이 업로드되었습니다.`);
     } catch (e) {
@@ -1258,10 +1264,12 @@ function DownloadPage({ user, meta }) {
   const handleDownload = async (file) => {
     setDownloading(file.id);
     try {
-      const blob = await dbGetFile(file.id);
-      if (!blob) { alert("파일을 찾을 수 없습니다. 관리자에게 문의하세요."); return; }
-      const url = URL.createObjectURL(blob);
-      const a   = document.createElement("a");
+      if (!file.binId) { alert("이 파일은 구버전으로 업로드되었습니다. 관리자가 다시 업로드해야 합니다."); setDownloading(null); return; }
+      const b64 = await cloudDownloadFile(file.binId);
+      if (!b64) { alert("파일을 찾을 수 없습니다. 관리자에게 문의하세요."); setDownloading(null); return; }
+      const blob = base64ToBlob(b64);
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement("a");
       a.href     = url;
       a.download = file.file_name;
       a.click();
