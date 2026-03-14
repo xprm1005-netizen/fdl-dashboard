@@ -492,7 +492,7 @@ function DashboardPage({ user, academies, resultFiles, dashboards, testTypes }) 
         {rankList.length === 0 ? (
           <div style={{ textAlign: "center", padding: 32, color: TEXT2, fontSize: 13 }}>데이터가 없습니다</div>
         ) : (
-          <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(3, 1fr)", gap: 16 }}>
             {rankList.map((r, i) => {
               const prevVal = i > 0 ? parseFloat(rankList[i - 1].value) : null;
               const curVal  = parseFloat(r.value);
@@ -798,26 +798,28 @@ function UploadPage({ meta, onUpload }) {
             <div>업로드된 파일이 없습니다</div>
           </div>
         ) : (
+          <div style={{ overflowX: "auto" }}>
           <table style={S.table}>
             <thead><tr>
               <th style={S.th}>파일명</th>
               <th style={S.th}>팀</th>
               <th style={S.th}>차시</th>
-              <th style={S.th}>크기</th>
-              <th style={S.th}>업로드 일시</th>
+              <th style={{ ...S.th, display: isMobile ? "none" : "" }}>크기</th>
+              <th style={{ ...S.th, display: isMobile ? "none" : "" }}>업로드 일시</th>
             </tr></thead>
             <tbody>
               {[...meta.resultFiles].reverse().map(f => (
                 <tr key={f.id}>
-                  <td style={S.td}><span style={{ marginRight: 8 }}>📕</span><span style={{ fontWeight: 500, color: "#fff" }}>{f.file_name}</span></td>
+                  <td style={S.td}><span style={{ marginRight: 8 }}>📕</span><span style={{ fontWeight: 500, color: "#fff", fontSize: isMobile ? 12 : 14 }}>{f.file_name}</span></td>
                   <td style={S.td}><span style={{ color: LIME }}>{meta.academies.find(a => a.id === f.academy_id)?.name}</span></td>
                   <td style={S.td}>{f.year}년 {f.round}차시</td>
-                  <td style={S.td}>{fmt(f.file_size)}</td>
-                  <td style={S.td}>{f.uploaded_at}</td>
+                  <td style={{ ...S.td, display: isMobile ? "none" : "" }}>{fmt(f.file_size)}</td>
+                  <td style={{ ...S.td, display: isMobile ? "none" : "" }}>{f.uploaded_at}</td>
                 </tr>
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </div>
     </div>
@@ -910,15 +912,15 @@ function DataEntryPage({ meta, onMetaChange }) {
   return (
     <div>
       {/* 헤더 */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 24 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 24, flexWrap: "wrap", gap: 12 }}>
         <div>
-          <h2 style={{ fontSize: 22, fontWeight: 800, color: "#fff", margin: 0 }}>✏️ 대시보드 수기 입력</h2>
-          <p style={{ color: TEXT2, fontSize: 14, marginTop: 4 }}>팀 대시보드에 표시될 내용을 직접 입력하세요</p>
+          <h2 style={{ fontSize: isMobile ? 18 : 22, fontWeight: 800, color: "#fff", margin: 0 }}>✏️ 대시보드 수기 입력</h2>
+          {!isMobile && <p style={{ color: TEXT2, fontSize: 14, marginTop: 4 }}>팀 대시보드에 표시될 내용을 직접 입력하세요</p>}
         </div>
         <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-          {isDirty && <span style={{ fontSize: 12, color: ORANGE }}>● 저장되지 않은 변경사항</span>}
+          {isDirty && !isMobile && <span style={{ fontSize: 12, color: ORANGE }}>● 저장되지 않은 변경사항</span>}
           <button style={{ ...S.btn, opacity: isDirty ? 1 : 0.4, minWidth: 100 }} onClick={handleSave} disabled={!isDirty}>
-            {saved ? "✅ 저장됨" : "💾 저장"}
+            {saved ? "✅ 저장됨" : isDirty && isMobile ? "● 💾 저장" : "💾 저장"}
           </button>
         </div>
       </div>
@@ -932,16 +934,16 @@ function DataEntryPage({ meta, onMetaChange }) {
       </div>
 
       {/* 탭 */}
-      <div style={{ display: "flex", gap: 6, marginBottom: 24, borderBottom: `1px solid ${BORDER}`, paddingBottom: 0 }}>
+      <div style={{ display: "flex", gap: isMobile ? 0 : 6, marginBottom: 24, borderBottom: `1px solid ${BORDER}`, paddingBottom: 0, overflowX: "auto" }}>
         {TABS.map(t => (
           <button key={t.id} onClick={() => setTab(t.id)} style={{
             background: "transparent", border: "none", cursor: "pointer",
-            fontSize: 14, fontWeight: tab === t.id ? 700 : 400,
+            fontSize: isMobile ? 20 : 14, fontWeight: tab === t.id ? 700 : 400,
             color: tab === t.id ? "#fff" : TEXT2,
-            padding: "10px 18px",
+            padding: isMobile ? "10px 16px" : "10px 18px",
             borderBottom: tab === t.id ? `2px solid ${LIME}` : "2px solid transparent",
-            marginBottom: -1,
-          }}>{t.label}</button>
+            marginBottom: -1, whiteSpace: "nowrap", flex: isMobile ? 1 : "none",
+          }}>{isMobile ? t.label.split(" ")[0] : t.label}</button>
         ))}
       </div>
 
@@ -1055,6 +1057,22 @@ function DataEntryPage({ meta, onMetaChange }) {
             <div style={{ textAlign: "center", padding: 40, color: TEXT2 }}>
               <div style={{ fontSize: 36, marginBottom: 12 }}>📋</div>
               <div>행 추가 버튼으로 선수를 입력하세요</div>
+            </div>
+          ) : isMobile ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {(cur.rankings[rankTest] ?? []).map((row, i) => (
+                <div key={i} style={{ background: CARD2, borderRadius: 10, padding: "12px 14px", display: "grid", gridTemplateColumns: "24px 1fr auto", gap: 10, alignItems: "center" }}>
+                  <span style={{ color: TEXT2, fontWeight: 700, fontSize: 14 }}>{i + 1}</span>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    <input style={smIn({ width: "100%" })} placeholder="이름" value={row.name} onChange={e => setRankCell(i, "name", e.target.value)} />
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <input style={smIn({ flex: 1 })} placeholder="나이" value={row.age} onChange={e => setRankCell(i, "age", e.target.value)} />
+                      <input style={smIn({ flex: 1 })} placeholder={`기록(${testTypes.find(t=>t.id===rankTest)?.unit})`} value={row.value} onChange={e => setRankCell(i, "value", e.target.value)} />
+                    </div>
+                  </div>
+                  <button style={{ ...S.btnDanger, padding: "4px 8px", border: "none", fontSize: 16 }} onClick={() => removeRankRow(i)}>🗑</button>
+                </div>
+              ))}
             </div>
           ) : (
             <table style={S.table}>
@@ -1174,7 +1192,7 @@ function TestTypesPage({ meta, onMetaChange }) {
         <table style={S.table}>
           <thead><tr>
             <th style={S.th}>종목명</th>
-            <th style={S.th}>ID</th>
+            <th style={{ ...S.th, display: isMobile ? "none" : "" }}>ID</th>
             <th style={S.th}>단위</th>
             <th style={S.th}>기준</th>
             <th style={{ ...S.th, textAlign: "right" }}></th>
@@ -1187,7 +1205,7 @@ function TestTypesPage({ meta, onMetaChange }) {
                     <td style={{ ...S.td, padding: "8px 12px" }}>
                       <input style={{ ...inStyle, width: "100%" }} value={editFields.name} onChange={e => setEditFields(p => ({ ...p, name: e.target.value }))} />
                     </td>
-                    <td style={S.td}><span style={{ color: TEXT2, fontSize: 12 }}>{tt.id}</span></td>
+                    <td style={{ ...S.td, display: isMobile ? "none" : "" }}><span style={{ color: TEXT2, fontSize: 12 }}>{tt.id}</span></td>
                     <td style={{ ...S.td, padding: "8px 8px" }}>
                       <input style={{ ...inStyle, width: 70 }} value={editFields.unit} onChange={e => setEditFields(p => ({ ...p, unit: e.target.value }))} />
                     </td>
@@ -1207,9 +1225,9 @@ function TestTypesPage({ meta, onMetaChange }) {
                 ) : (
                   <>
                     <td style={S.td}><span style={{ fontWeight: 600, color: "#fff" }}>{tt.name}</span></td>
-                    <td style={S.td}><span style={{ fontSize: 12, color: TEXT2, fontFamily: "monospace" }}>{tt.id}</span></td>
+                    <td style={{ ...S.td, display: isMobile ? "none" : "" }}><span style={{ fontSize: 12, color: TEXT2, fontFamily: "monospace" }}>{tt.id}</span></td>
                     <td style={S.td}>{tt.unit}</td>
-                    <td style={S.td}><span style={{ fontSize: 12, color: tt.lower_better ? BLUE : LIME }}>{tt.lower_better ? "낮을수록 좋음" : "높을수록 좋음"}</span></td>
+                    <td style={S.td}><span style={{ fontSize: isMobile ? 18 : 12, color: tt.lower_better ? BLUE : LIME }}>{isMobile ? (tt.lower_better ? "↓" : "↑") : (tt.lower_better ? "낮을수록 좋음" : "높을수록 좋음")}</span></td>
                     <td style={{ ...S.td, textAlign: "right" }}>
                       <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
                         <button style={S.btnGhost} onClick={() => startEdit(tt)}>수정</button>
