@@ -53,6 +53,13 @@ async function cloudDownloadFile(binId) {
   const json = await res.json();
   return json?.record?._data ?? null;
 }
+async function cloudDeleteFile(binId) {
+  if (!binId) return;
+  await fetch(`https://api.jsonbin.io/v3/b/${binId}`, {
+    method: "DELETE",
+    headers: { "X-Master-Key": JSONBIN_MASTER_KEY },
+  });
+}
 
 // ── 테스트 종목 기본값 ─────────────────────────────────
 const DEFAULT_TEST_TYPES = [
@@ -423,10 +430,10 @@ function DashboardPage({ user, academies, resultFiles, dashboards, testTypes }) 
 
   return (
     <div>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 28 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: isMobile ? 16 : 28 }}>
         <div>
-          <h2 style={{ fontSize: 22, fontWeight: 800, color: "#fff", margin: 0 }}>{myAcademy?.name} 대시보드</h2>
-          <p style={{ color: TEXT2, fontSize: 12, marginTop: 4 }}>최종 업데이트: {db.updatedAt}</p>
+          <h2 style={{ fontSize: isMobile ? 17 : 22, fontWeight: 800, color: "#fff", margin: 0 }}>{myAcademy?.name} 대시보드</h2>
+          <p style={{ color: TEXT2, fontSize: 11, marginTop: 2 }}>업데이트: {db.updatedAt}</p>
         </div>
       </div>
 
@@ -438,7 +445,7 @@ function DashboardPage({ user, academies, resultFiles, dashboards, testTypes }) 
       )}
 
       {/* 요약 수치 */}
-      <div style={{ display: "flex", gap: 16, marginBottom: 24, flexWrap: "wrap" }}>
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(4, 1fr)", gap: 12, marginBottom: 20 }}>
         <StatCard icon="👥" label="등록 선수" value={stats.playerCount || "-"} sub={`${stats.year || ""}년 기준`} />
         <StatCard icon="📋" label="완료 테스트" value={stats.testCount || "-"} sub="누적 테스트" color={BLUE} />
         <StatCard icon="📊" label="최근 차시" value={stats.latestRound ? `${stats.latestRound}차시` : "-"} sub="최신 기록" color={PURPLE} />
@@ -472,12 +479,26 @@ function DashboardPage({ user, academies, resultFiles, dashboards, testTypes }) 
               const tp = topPerformers[tt.id];
               const hasData = tp?.name || tp?.value;
               return (
-                <div key={tt.id} style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, alignItems: "center", padding: "10px 14px", background: CARD2, borderRadius: 8 }}>
-                  <span style={{ fontSize: 13, color: hasData ? TEXT : TEXT2 }}>{tt.name}</span>
-                  <span style={{ fontSize: 13, color: TEXT, fontWeight: 500 }}>{tp?.name || <span style={{ color: TEXT2 }}>-</span>}</span>
-                  <span style={{ fontSize: 13, color: hasData ? LIME : TEXT2, fontWeight: 700, textAlign: "right" }}>
-                    {tp?.value ? `${tp.value}${tt.unit}` : "-"}
-                  </span>
+                <div key={tt.id} style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr auto" : "1fr 1fr 1fr", gap: 8, alignItems: "center", padding: "8px 12px", background: CARD2, borderRadius: 8 }}>
+                  {isMobile ? (
+                    <>
+                      <div>
+                        <div style={{ fontSize: 11, color: TEXT2, marginBottom: 2 }}>{tt.name}</div>
+                        <div style={{ fontSize: 13, color: TEXT, fontWeight: 500 }}>{tp?.name || <span style={{ color: TEXT2 }}>-</span>}</div>
+                      </div>
+                      <span style={{ fontSize: 14, color: hasData ? LIME : TEXT2, fontWeight: 700, textAlign: "right" }}>
+                        {tp?.value ? `${tp.value}${tt.unit}` : "-"}
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <span style={{ fontSize: 13, color: hasData ? TEXT : TEXT2 }}>{tt.name}</span>
+                      <span style={{ fontSize: 13, color: TEXT, fontWeight: 500 }}>{tp?.name || <span style={{ color: TEXT2 }}>-</span>}</span>
+                      <span style={{ fontSize: 13, color: hasData ? LIME : TEXT2, fontWeight: 700, textAlign: "right" }}>
+                        {tp?.value ? `${tp.value}${tt.unit}` : "-"}
+                      </span>
+                    </>
+                  )}
                 </div>
               );
             })}
@@ -487,16 +508,16 @@ function DashboardPage({ user, academies, resultFiles, dashboards, testTypes }) 
 
       {/* 선수 랭킹 - TOP 3 */}
       <div style={S.card}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20, flexWrap: "wrap", gap: 10 }}>
           <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "#fff" }}>🏅 선수 랭킹 TOP 3</h3>
-          <select style={S.select} value={selectedRankTest} onChange={e => setSelectedRankTest(e.target.value)}>
+          <select style={{ ...S.select, fontSize: isMobile ? 12 : 14, maxWidth: isMobile ? 140 : "none" }} value={selectedRankTest} onChange={e => setSelectedRankTest(e.target.value)}>
             {testTypes.map(tt => <option key={tt.id} value={tt.id}>{tt.name}</option>)}
           </select>
         </div>
         {rankList.length === 0 ? (
           <div style={{ textAlign: "center", padding: 32, color: TEXT2, fontSize: 13 }}>데이터가 없습니다</div>
         ) : (
-          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(3, 1fr)", gap: 16 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: isMobile ? 8 : 16 }}>
             {rankList.map((r, i) => {
               const prevVal = i > 0 ? parseFloat(rankList[i - 1].value) : null;
               const curVal  = parseFloat(r.value);
@@ -507,14 +528,14 @@ function DashboardPage({ user, academies, resultFiles, dashboards, testTypes }) 
               }
               const medalColors = ["#FFD700", "#C0C0C0", "#CD7F32"];
               return (
-                <div key={i} style={{ flex: 1, minWidth: 160, background: CARD2, borderRadius: 14, padding: "20px 24px", border: `1px solid ${i === 0 ? "#FFD70040" : BORDER}`, position: "relative" }}>
-                  <div style={{ fontSize: 36, marginBottom: 8 }}>{MEDALS[i]}</div>
-                  <div style={{ fontSize: 20, fontWeight: 800, color: "#fff", marginBottom: 4 }}>{r.name || "-"}</div>
-                  {r.age && <div style={{ fontSize: 12, color: TEXT2, marginBottom: 8 }}>{r.age}세</div>}
-                  <div style={{ fontSize: 24, fontWeight: 900, color: medalColors[i], marginBottom: 4 }}>
+                <div key={i} style={{ background: CARD2, borderRadius: isMobile ? 10 : 14, padding: isMobile ? "12px 10px" : "20px 24px", border: `1px solid ${i === 0 ? "#FFD70040" : BORDER}`, textAlign: isMobile ? "center" : "left" }}>
+                  <div style={{ fontSize: isMobile ? 24 : 36, marginBottom: isMobile ? 4 : 8 }}>{MEDALS[i]}</div>
+                  <div style={{ fontSize: isMobile ? 13 : 20, fontWeight: 800, color: "#fff", marginBottom: 2, wordBreak: "break-all" }}>{r.name || "-"}</div>
+                  {r.age && !isMobile && <div style={{ fontSize: 12, color: TEXT2, marginBottom: 8 }}>{r.age}세</div>}
+                  <div style={{ fontSize: isMobile ? 16 : 24, fontWeight: 900, color: medalColors[i], marginBottom: 2 }}>
                     {r.value}{currentTT?.unit}
                   </div>
-                  {gap && <div style={{ fontSize: 12, color: TEXT2 }}>▲ {gap} 차이</div>}
+                  {gap && !isMobile && <div style={{ fontSize: 12, color: TEXT2 }}>▲ {gap} 차이</div>}
                 </div>
               );
             })}
@@ -692,7 +713,7 @@ function TeamsPage({ meta, onMetaChange }) {
 }
 
 // ── 파일 업로드 (관리자) ──────────────────────────────
-function UploadPage({ meta, onUpload }) {
+function UploadPage({ meta, onUpload, onDeleteFile }) {
   const isMobile  = useContext(MobileCtx);
   const [academyId,  setAcademyId]  = useState(meta.academies[0]?.id ?? 1);
   const [round,      setRound]      = useState(1);
@@ -700,9 +721,18 @@ function UploadPage({ meta, onUpload }) {
   const [date,       setDate]       = useState(new Date().toISOString().split("T")[0]);
   const [dragging,   setDragging]   = useState(false);
   const [uploading,  setUploading]  = useState(false);
+  const [deleting,   setDeleting]   = useState(null);
   const [success,    setSuccess]    = useState("");
   const [error,      setError]      = useState("");
   const fileRef = useRef();
+
+  const handleDelete = async (f) => {
+    if (!confirm(`"${f.file_name}" 파일을 삭제하시겠습니까?`)) return;
+    setDeleting(f.id);
+    await cloudDeleteFile(f.binId);
+    onDeleteFile(f.id);
+    setDeleting(null);
+  };
 
   const handleFiles = async (files) => {
     const pdfs = [...files].filter(f => f.name.toLowerCase().endsWith(".pdf"));
@@ -812,6 +842,7 @@ function UploadPage({ meta, onUpload }) {
               <th style={S.th}>차시</th>
               <th style={{ ...S.th, display: isMobile ? "none" : "" }}>크기</th>
               <th style={{ ...S.th, display: isMobile ? "none" : "" }}>업로드 일시</th>
+              <th style={{ ...S.th, textAlign: "right" }}></th>
             </tr></thead>
             <tbody>
               {[...meta.resultFiles].reverse().map(f => (
@@ -821,6 +852,13 @@ function UploadPage({ meta, onUpload }) {
                   <td style={S.td}>{f.year}년 {f.round}차시</td>
                   <td style={{ ...S.td, display: isMobile ? "none" : "" }}>{fmt(f.file_size)}</td>
                   <td style={{ ...S.td, display: isMobile ? "none" : "" }}>{f.uploaded_at}</td>
+                  <td style={{ ...S.td, textAlign: "right" }}>
+                    <button
+                      style={{ ...S.btnDanger, padding: "4px 10px", fontSize: 12, opacity: deleting === f.id ? 0.5 : 1 }}
+                      onClick={() => handleDelete(f)}
+                      disabled={deleting === f.id}
+                    >{deleting === f.id ? "삭제중..." : "삭제"}</button>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -1538,7 +1576,7 @@ export default function App() {
           {page === "dashboard"  && <DashboardPage user={user} academies={meta.academies} resultFiles={meta.resultFiles} dashboards={meta.dashboards} testTypes={meta.testTypes ?? DEFAULT_TEST_TYPES} />}
           {page === "teams"      && isAdmin && <TeamsPage meta={meta} onMetaChange={setMeta} />}
           {page === "dataentry"  && isAdmin && <DataEntryPage meta={meta} onMetaChange={setMeta} />}
-          {page === "upload"     && isAdmin && <UploadPage meta={meta} onUpload={handleUpload} />}
+          {page === "upload"     && isAdmin && <UploadPage meta={meta} onUpload={handleUpload} onDeleteFile={(id) => setMeta(prev => ({ ...prev, resultFiles: prev.resultFiles.filter(f => f.id !== id) }))} />}
           {page === "testtypes"  && isAdmin && <TestTypesPage meta={meta} onMetaChange={setMeta} />}
           {page === "download"   && !isAdmin && <DownloadPage user={user} meta={meta} />}
         </div>
