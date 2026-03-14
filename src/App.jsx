@@ -1,4 +1,6 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, createContext, useContext } from "react";
+
+const MobileCtx = createContext(false);
 import {
   RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
   ResponsiveContainer,
@@ -223,6 +225,7 @@ function defaultDashboard(testTypes = DEFAULT_TEST_TYPES) {
 
 // ── 대시보드 (관리자: 전체 요약 / 팀: 설정된 내용) ─────
 function DashboardPage({ user, academies, resultFiles, dashboards, testTypes }) {
+  const isMobile  = useContext(MobileCtx);
   const isAdmin   = user.role === "admin";
   const myAcademy = academies.find(a => a.id === user.academy_id);
   const db        = isAdmin ? null : (dashboards[user.academy_id] ?? null);
@@ -262,7 +265,7 @@ function DashboardPage({ user, academies, resultFiles, dashboards, testTypes }) 
 
         {/* 전체 평균 능력치 */}
         {configuredDbs.length > 0 && (
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginBottom: 20 }}>
+          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 20, marginBottom: 20 }}>
             <div style={S.card}>
               <h3 style={{ margin: "0 0 4px", fontSize: 16, fontWeight: 700, color: "#fff" }}>🕸️ 전체 팀 평균 능력치</h3>
               <p style={{ fontSize: 12, color: TEXT2, margin: "0 0 16px" }}>{configuredDbs.length}개 팀 평균</p>
@@ -403,7 +406,7 @@ function DashboardPage({ user, academies, resultFiles, dashboards, testTypes }) 
       </div>
 
       {/* 능력치 + 최고기록 */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginBottom: 20 }}>
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 20, marginBottom: 20 }}>
         <div style={S.card}>
           <h3 style={{ margin: "0 0 20px", fontSize: 16, fontWeight: 700, color: "#fff" }}>🕸️ 팀 능력치 분석</h3>
           <ResponsiveContainer width="100%" height={260}>
@@ -482,6 +485,7 @@ function DashboardPage({ user, academies, resultFiles, dashboards, testTypes }) 
 
 // ── 팀 관리 (관리자) ───────────────────────────────────
 function TeamsPage({ meta, onMetaChange }) {
+  const isMobile  = useContext(MobileCtx);
   const [showForm,   setShowForm]   = useState(false);
   const [teamName,   setTeamName]   = useState("");
   const [teamEmail,  setTeamEmail]  = useState("");
@@ -550,7 +554,7 @@ function TeamsPage({ meta, onMetaChange }) {
       {showForm && (
         <div style={{ ...S.card, border: `1px solid ${LIME}30`, background: `${LIME}04`, marginBottom: 24 }}>
           <h3 style={{ margin: "0 0 20px", fontSize: 16, fontWeight: 700, color: "#fff" }}>새 팀 등록</h3>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16, marginBottom: 20 }}>
+          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: 16, marginBottom: 20 }}>
             <div>
               <label style={{ fontSize: 13, color: TEXT2, display: "block", marginBottom: 8 }}>팀 이름 *</label>
               <input style={S.input} placeholder="예: KSA 축구 아카데미" value={teamName} onChange={e => setTeamName(e.target.value)} />
@@ -571,7 +575,7 @@ function TeamsPage({ meta, onMetaChange }) {
         </div>
       )}
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(360px, 1fr))", gap: 16 }}>
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fill, minmax(360px, 1fr))", gap: 16 }}>
         {meta.academies.map(a => {
           const user    = meta.users.find(u => u.academy_id === a.id);
           const fCount  = meta.resultFiles.filter(f => f.academy_id === a.id).length;
@@ -647,6 +651,7 @@ function TeamsPage({ meta, onMetaChange }) {
 
 // ── 파일 업로드 (관리자) ──────────────────────────────
 function UploadPage({ meta, onUpload }) {
+  const isMobile  = useContext(MobileCtx);
   const [academyId,  setAcademyId]  = useState(meta.academies[0]?.id ?? 1);
   const [round,      setRound]      = useState(1);
   const [year,       setYear]       = useState(new Date().getFullYear());
@@ -694,7 +699,7 @@ function UploadPage({ meta, onUpload }) {
 
       <div style={S.card}>
         <h3 style={{ margin: "0 0 20px", fontSize: 16, fontWeight: 700, color: "#fff" }}>업로드 설정</h3>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 16, marginBottom: 24 }}>
+        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "1fr 1fr 1fr 1fr", gap: 16, marginBottom: 24 }}>
           <div>
             <label style={{ fontSize: 13, color: TEXT2, display: "block", marginBottom: 8 }}>팀 선택</label>
             <select style={{ ...S.select, width: "100%" }} value={academyId} onChange={e => setAcademyId(Number(e.target.value))}>
@@ -790,6 +795,7 @@ const TABS = [
 ];
 
 function DataEntryPage({ meta, onMetaChange }) {
+  const isMobile  = useContext(MobileCtx);
   const testTypes = meta.testTypes ?? DEFAULT_TEST_TYPES;
   const [academyId, setAcademyId] = useState(meta.academies[0]?.id ?? 1);
   const [tab,       setTab]       = useState("info");
@@ -895,7 +901,7 @@ function DataEntryPage({ meta, onMetaChange }) {
       {tab === "info" && (
         <div style={S.card}>
           <h3 style={{ margin: "0 0 20px", fontSize: 15, fontWeight: 700, color: "#fff" }}>요약 수치 & 공지</h3>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 16, marginBottom: 24 }}>
+          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "1fr 1fr 1fr 1fr", gap: 16, marginBottom: 24 }}>
             <div>
               <label style={{ fontSize: 12, color: TEXT2, display: "block", marginBottom: 6 }}>등록 선수 수</label>
               <input style={inStyle} placeholder="예: 32명" value={cur.stats.playerCount} onChange={e => update(["stats","playerCount"], e.target.value)} />
@@ -931,7 +937,7 @@ function DataEntryPage({ meta, onMetaChange }) {
           <h3 style={{ margin: "0 0 20px", fontSize: 15, fontWeight: 700, color: "#fff" }}>테스트별 최고 기록 선수</h3>
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
             {testTypes.map(tt => (
-              <div key={tt.id} style={{ display: "grid", gridTemplateColumns: "160px 1fr 1fr", gap: 12, alignItems: "center", padding: "16px 20px", background: CARD2, borderRadius: 10 }}>
+              <div key={tt.id} style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "160px 1fr 1fr", gap: 12, alignItems: "center", padding: "16px 20px", background: CARD2, borderRadius: 10 }}>
                 <div style={{ fontSize: 14, fontWeight: 600, color: "#fff" }}>
                   {tt.name}
                   <span style={{ fontSize: 11, color: TEXT2, marginLeft: 6 }}>({tt.unit})</span>
@@ -955,7 +961,7 @@ function DataEntryPage({ meta, onMetaChange }) {
         <div style={S.card}>
           <h3 style={{ margin: "0 0 8px", fontSize: 15, fontWeight: 700, color: "#fff" }}>팀 능력치 레이더 차트</h3>
           <p style={{ color: TEXT2, fontSize: 13, marginBottom: 24 }}>각 항목을 0~100 사이 값으로 입력하세요</p>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16 }}>
             {RADAR_CATS.map(cat => {
               const val = Number(cur.radarData[cat]) || 0;
               return (
@@ -1048,6 +1054,7 @@ function DataEntryPage({ meta, onMetaChange }) {
 
 // ── 종목 관리 (관리자) ────────────────────────────────
 function TestTypesPage({ meta, onMetaChange }) {
+  const isMobile  = useContext(MobileCtx);
   const testTypes = meta.testTypes ?? DEFAULT_TEST_TYPES;
   const [editingId,  setEditingId]  = useState(null);
   const [editFields, setEditFields] = useState({ name: "", unit: "", lower_better: false });
@@ -1091,7 +1098,7 @@ function TestTypesPage({ meta, onMetaChange }) {
       {showAdd && (
         <div style={{ ...S.card, border: `1px solid ${LIME}30`, background: `${LIME}04`, marginBottom: 24 }}>
           <h3 style={{ margin: "0 0 16px", fontSize: 15, fontWeight: 700, color: "#fff" }}>새 종목 등록</h3>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr auto", gap: 12, alignItems: "end" }}>
+          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "1fr 1fr 1fr auto", gap: 12, alignItems: "end" }}>
             <div>
               <label style={{ fontSize: 12, color: TEXT2, display: "block", marginBottom: 6 }}>종목명 *</label>
               <input style={inStyle} placeholder="예: 10M 스프린트" value={newFields.name} onChange={e => setNewFields(p => ({ ...p, name: e.target.value }))} />
@@ -1291,6 +1298,13 @@ export default function App() {
   const [page,     setPage]     = useState("dashboard");
   const [collapsed, setCollapsed] = useState(false);
   const [meta,     setMeta]     = useState(loadMeta);
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
+
+  useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
 
   // meta 변경 시 localStorage 저장
   useEffect(() => { saveMeta(meta); }, [meta]);
@@ -1317,55 +1331,67 @@ export default function App() {
   const navItems = isAdmin ? adminNav : teamNav;
 
   return (
+    <MobileCtx.Provider value={isMobile}>
     <div style={S.app}>
-      {/* 사이드바 */}
-      <div style={{ ...S.sidebar, ...(collapsed ? S.sidebarC : {}) }}>
-        <Logo collapsed={collapsed} />
-        <nav style={{ flex: 1, paddingTop: 12 }}>
-          {navItems.map(item => (
-            <NavItem key={item.id} icon={item.icon} label={item.label} active={page === item.id} onClick={() => setPage(item.id)} collapsed={collapsed} />
-          ))}
-        </nav>
-        <div style={{ padding: collapsed ? "16px 12px" : "16px 24px", borderTop: `1px solid ${BORDER}` }}>
-          {!collapsed && (
-            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
-              <div style={{ width: 32, height: 32, borderRadius: "50%", background: `${LIME}20`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14 }}>
-                {isAdmin ? "👑" : "👤"}
+      {/* 사이드바 (데스크탑만) */}
+      {!isMobile && (
+        <div style={{ ...S.sidebar, ...(collapsed ? S.sidebarC : {}) }}>
+          <Logo collapsed={collapsed} />
+          <nav style={{ flex: 1, paddingTop: 12 }}>
+            {navItems.map(item => (
+              <NavItem key={item.id} icon={item.icon} label={item.label} active={page === item.id} onClick={() => setPage(item.id)} collapsed={collapsed} />
+            ))}
+          </nav>
+          <div style={{ padding: collapsed ? "16px 12px" : "16px 24px", borderTop: `1px solid ${BORDER}` }}>
+            {!collapsed && (
+              <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
+                <div style={{ width: 32, height: 32, borderRadius: "50%", background: `${LIME}20`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14 }}>
+                  {isAdmin ? "👑" : "👤"}
+                </div>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: "#fff" }}>{user.name}</div>
+                  <div style={{ fontSize: 11, color: TEXT2 }}>{isAdmin ? "관리자" : "팀 계정"}</div>
+                </div>
               </div>
-              <div>
-                <div style={{ fontSize: 13, fontWeight: 600, color: "#fff" }}>{user.name}</div>
-                <div style={{ fontSize: 11, color: TEXT2 }}>{isAdmin ? "관리자" : "팀 계정"}</div>
-              </div>
-            </div>
-          )}
-          <button style={{ ...S.btnGhost, width: "100%", textAlign: collapsed ? "center" : "left", color: RED, fontSize: 13 }} onClick={() => { setUser(null); setPage("dashboard"); }}>
-            {collapsed ? "🚪" : "🚪 로그아웃"}
-          </button>
+            )}
+            <button style={{ ...S.btnGhost, width: "100%", textAlign: collapsed ? "center" : "left", color: RED, fontSize: 13 }} onClick={() => { setUser(null); setPage("dashboard"); }}>
+              {collapsed ? "🚪" : "🚪 로그아웃"}
+            </button>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* 메인 */}
-      <div style={{ ...S.main, ...(collapsed ? S.mainC : {}) }}>
-        <div style={S.topBar}>
+      <div style={{ ...S.main, ...(isMobile ? { marginLeft: 0, paddingBottom: 64 } : collapsed ? S.mainC : {}) }}>
+        {/* 탑바 */}
+        <div style={{ ...S.topBar, padding: isMobile ? "0 16px" : "0 32px" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-            <button style={{ ...S.btnGhost, fontSize: 18, padding: "4px 8px" }} onClick={() => setCollapsed(!collapsed)}>
-              {collapsed ? "☰" : "✕"}
-            </button>
-            <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "#fff" }}>
+            {!isMobile && (
+              <button style={{ ...S.btnGhost, fontSize: 18, padding: "4px 8px" }} onClick={() => setCollapsed(!collapsed)}>
+                {collapsed ? "☰" : "✕"}
+              </button>
+            )}
+            <h3 style={{ margin: 0, fontSize: isMobile ? 14 : 16, fontWeight: 700, color: "#fff" }}>
               {navItems.find(n => n.id === page)?.icon} {navItems.find(n => n.id === page)?.label}
             </h3>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             {!isAdmin && (
-              <span style={{ ...S.badge, background: `${BLUE}15`, color: BLUE }}>
+              <span style={{ ...S.badge, background: `${BLUE}15`, color: BLUE, fontSize: isMobile ? 11 : 12 }}>
                 {meta.academies.find(a => a.id === user.academy_id)?.name}
               </span>
             )}
-            <span style={{ fontSize: 13, color: TEXT2 }}>{new Date().getFullYear()}년</span>
+            {!isMobile && <span style={{ fontSize: 13, color: TEXT2 }}>{new Date().getFullYear()}년</span>}
+            {isMobile && (
+              <button style={{ ...S.btnGhost, color: RED, fontSize: 13, padding: "6px 10px" }} onClick={() => { setUser(null); setPage("dashboard"); }}>
+                🚪
+              </button>
+            )}
           </div>
         </div>
 
-        <div style={S.content}>
+        {/* 콘텐츠 */}
+        <div style={{ ...S.content, padding: isMobile ? "16px" : "28px 32px" }}>
           {page === "dashboard"  && <DashboardPage user={user} academies={meta.academies} resultFiles={meta.resultFiles} dashboards={meta.dashboards} testTypes={meta.testTypes ?? DEFAULT_TEST_TYPES} />}
           {page === "teams"      && isAdmin && <TeamsPage meta={meta} onMetaChange={setMeta} />}
           {page === "dataentry"  && isAdmin && <DataEntryPage meta={meta} onMetaChange={setMeta} />}
@@ -1374,6 +1400,23 @@ export default function App() {
           {page === "download"   && !isAdmin && <DownloadPage user={user} meta={meta} />}
         </div>
       </div>
+
+      {/* 하단 탭바 (모바일만) */}
+      {isMobile && (
+        <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, height: 64, background: "#0D0D0D", borderTop: `1px solid ${BORDER}`, display: "flex", alignItems: "center", justifyContent: "space-around", zIndex: 100 }}>
+          {navItems.map(item => (
+            <button
+              key={item.id}
+              onClick={() => setPage(item.id)}
+              style={{ background: "transparent", border: "none", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 4, padding: "8px 12px", color: page === item.id ? LIME : TEXT2, flex: 1 }}
+            >
+              <span style={{ fontSize: 20 }}>{item.icon}</span>
+              <span style={{ fontSize: 10, fontWeight: page === item.id ? 700 : 400, whiteSpace: "nowrap" }}>{item.label}</span>
+            </button>
+          ))}
+        </div>
+      )}
     </div>
+    </MobileCtx.Provider>
   );
 }
