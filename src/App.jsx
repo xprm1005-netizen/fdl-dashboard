@@ -76,21 +76,53 @@ const INITIAL_STATE = {
   testTypes: DEFAULT_TEST_TYPES,
 };
 
-function loadMeta() {
+// ── Supabase 클라우드 저장 ─────────────────────────────
+const SB_URL = "https://jbebrpphywpfbqcsjgq.supabase.co";
+const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpiZWJyYnBwaHl3cGZicWNzamdxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM0NDkwNDksImV4cCI6MjA4OTAyNTA0OX0.lvSOQVvtLZcLieCyiShka0XzzARjzRy4J4yu4xHyRhs";
+const SB_HEADERS = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, "Content-Type": "application/json" };
+
+function validateMeta(parsed) {
+  if (!parsed.users)       parsed.users       = INITIAL_STATE.users;
+  if (!parsed.players)     parsed.players     = [];
+  if (!parsed.resultFiles) parsed.resultFiles = [];
+  if (!parsed.dashboards)  parsed.dashboards  = {};
+  if (!parsed.testTypes)   parsed.testTypes   = DEFAULT_TEST_TYPES;
+}
+
+async function loadMeta() {
+  // 1. 로컬 캐시 (빠른 초기 표시용)
+  let local = null;
   try {
     const s = localStorage.getItem("fdl-meta");
-    if (!s) return INITIAL_STATE;
-    const parsed = JSON.parse(s);
-    if (!parsed.users)       parsed.users      = INITIAL_STATE.users;
-    if (!parsed.players)     parsed.players    = [];
-    if (!parsed.resultFiles) parsed.resultFiles = [];
-    if (!parsed.dashboards)  parsed.dashboards  = {};
-    if (!parsed.testTypes)   parsed.testTypes   = DEFAULT_TEST_TYPES;
-    return parsed;
-  } catch { return INITIAL_STATE; }
+    if (s) { local = JSON.parse(s); validateMeta(local); }
+  } catch {}
+
+  // 2. 클라우드에서 최신 데이터 로드
+  try {
+    const res = await fetch(`${SB_URL}/rest/v1/app_data?id=eq.fdl-meta&select=data`, { headers: SB_HEADERS });
+    const rows = await res.json();
+    if (Array.isArray(rows) && rows.length > 0) {
+      const cloud = rows[0].data;
+      validateMeta(cloud);
+      localStorage.setItem("fdl-meta", JSON.stringify(cloud));
+      return cloud;
+    }
+  } catch (e) { console.warn("클라우드 로드 실패, 로컬 사용:", e); }
+
+  return local ?? INITIAL_STATE;
 }
-function saveMeta(data) {
+
+async function saveMeta(data) {
+  // 로컬에 즉시 저장
   localStorage.setItem("fdl-meta", JSON.stringify(data));
+  // 클라우드에 동기화
+  try {
+    await fetch(`${SB_URL}/rest/v1/app_data`, {
+      method: "POST",
+      headers: { ...SB_HEADERS, Prefer: "resolution=merge-duplicates" },
+      body: JSON.stringify({ id: "fdl-meta", data }),
+    });
+  } catch (e) { console.warn("클라우드 저장 실패:", e); }
 }
 
 // ── 스타일 ─────────────────────────────────────────────
@@ -1297,7 +1329,8 @@ export default function App() {
   const [user,     setUser]     = useState(null);
   const [page,     setPage]     = useState("dashboard");
   const [collapsed, setCollapsed] = useState(false);
-  const [meta,     setMeta]     = useState(loadMeta);
+  const [meta,     setMeta]     = useState(null);
+  const [loading,  setLoading]  = useState(true);
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
 
   useEffect(() => {
@@ -1306,12 +1339,30 @@ export default function App() {
     return () => window.removeEventListener("resize", onResize);
   }, []);
 
-  // meta 변경 시 localStorage 저장
-  useEffect(() => { saveMeta(meta); }, [meta]);
+  // 초기 데이터 로드 (클라우드)
+  useEffect(() => {
+    loadMeta().then(data => { setMeta(data); setLoading(false); });
+  }, []);
+
+  // meta 변경 시 클라우드 저장 (디바운스)
+  const saveTimer = useRef(null);
+  useEffect(() => {
+    if (!meta) return;
+    clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => saveMeta(meta), 800);
+    return () => clearTimeout(saveTimer.current);
+  }, [meta]);
 
   const handleUpload = (fileMeta) => {
     setMeta(prev => ({ ...prev, resultFiles: [...prev.resultFiles, fileMeta] }));
   };
+
+  if (loading) return (
+    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: DARK, flexDirection: "column", gap: 16 }}>
+      <div style={{ width: 40, height: 40, background: LIME, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 900, color: DARK, fontSize: 16 }}>FDL</div>
+      <div style={{ color: TEXT2, fontSize: 14 }}>데이터 불러오는 중...</div>
+    </div>
+  );
 
   const isAdmin = user?.role === "admin";
 
