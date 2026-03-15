@@ -480,7 +480,7 @@ function DashboardPage({ user, academies, resultFiles, dashboards, testTypes }) 
         <StatCard icon="👥" label="등록 선수" value={stats.playerCount || "-"} sub={`${stats.year || ""}년 기준`} />
         <StatCard icon="📋" label="완료 테스트" value={stats.testCount || "-"} sub="누적 테스트" color={BLUE} />
         <StatCard icon="📊" label="최근 차시" value={stats.latestRound ? `${stats.latestRound}차시` : "-"} sub="최신 기록" color={PURPLE} />
-        <StatCard icon="📁" label="결과 파일" value={`${myFiles.length}개`} sub="다운로드 가능" color={ORANGE} />
+        <StatCard icon="📁" label="인바디 파일" value={`${myFiles.length}개`} sub="다운로드 가능" color={ORANGE} />
       </div>
 
       {/* 능력치 + 최고기록 */}
@@ -1269,7 +1269,7 @@ function UploadPage({ meta, onUpload, onDeleteFile }) {
     <div>
       <div style={{ marginBottom: 28 }}>
         <h2 style={{ fontSize: 22, fontWeight: 800, color: "#fff", margin: 0 }}>📤 파일 업로드</h2>
-        <p style={{ color: TEXT2, fontSize: 14, marginTop: 4 }}>팀별 결과 PDF를 업로드하면 해당 팀이 다운로드할 수 있습니다</p>
+        <p style={{ color: TEXT2, fontSize: 14, marginTop: 4 }}>팀별 인바디 PDF를 업로드하면 해당 팀이 다운로드할 수 있습니다</p>
       </div>
 
       <div style={S.card}>
@@ -1984,8 +1984,8 @@ function DownloadPage({ user, meta }) {
   return (
     <div>
       <div style={{ marginBottom: 28 }}>
-        <h2 style={{ fontSize: 22, fontWeight: 800, color: "#fff", margin: 0 }}>📁 결과 파일 다운로드</h2>
-        <p style={{ color: TEXT2, fontSize: 14, marginTop: 4 }}>업로드된 결과 PDF를 다운로드하세요</p>
+        <h2 style={{ fontSize: 22, fontWeight: 800, color: "#fff", margin: 0 }}>📁 인바디 파일 다운로드</h2>
+        <p style={{ color: TEXT2, fontSize: 14, marginTop: 4 }}>업로드된 인바디 PDF를 다운로드하세요</p>
       </div>
 
       {/* 차시 필터 */}
@@ -2169,7 +2169,7 @@ export default function App() {
     { id: "dashboard",       icon: "📊", label: "대시보드" },
     { id: "player-ranking",  icon: "📋", label: "선수 랭킹" },
     { id: "player-analysis", icon: "🔍", label: "선수 분석" },
-    { id: "download",        icon: "📁", label: "결과 다운로드" },
+    { id: "download",        icon: "📁", label: "인바디 다운로드" },
   ];
   const navItems = isAdmin ? adminNav : teamNav;
 
