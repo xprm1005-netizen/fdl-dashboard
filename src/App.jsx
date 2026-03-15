@@ -84,8 +84,8 @@ const DEFAULT_TEST_TYPES = [
   { id: "sprint_10m", name: "10m 스프린트",    unit: "초",   lower_better: true,  category: "가속력", icon: "💨" },
   { id: "jump",       name: "서전트 점프",      unit: "cm",   lower_better: false, category: "근력",   icon: "💪" },
   { id: "yoyo",       name: "Yoyo",             unit: "회",   lower_better: false, category: "지구력", icon: "🫀" },
-  { id: "pass",       name: "패스",             unit: "회",   lower_better: false, category: "패스",   icon: "🎯" },
-  { id: "dribble",    name: "드리블 슬라럼",    unit: "초",   lower_better: true,  category: "드리블", icon: "⚽" },
+  { id: "pass",       name: "패스",             unit: "회",   lower_better: false, category: "정확도", icon: "🎯" },
+  { id: "dribble",    name: "드리블 슬라럼",    unit: "초",   lower_better: true,  category: "밸런스", icon: "⚽" },
   { id: "shooting",   name: "슈팅",             unit: "km/h", lower_better: false, category: "슈팅스피드", icon: "🚀" },
   { id: "agility",    name: "일리노이 테스트",  unit: "초",   lower_better: true,  category: "민첩성", icon: "🏃" },
   { id: "control",    name: "컨트롤",           unit: "초",   lower_better: true,  category: "시각반응", icon: "👁️" },
@@ -579,10 +579,10 @@ function DashboardPage({ user, academies, resultFiles, dashboards, testTypes }) 
             case "jump":       return Math.min(100, Math.round((v / 65) * 100));
             case "yoyo":       return Math.min(100, Math.round((v / 40) * 100));
             case "pass":       return Math.min(100, Math.round((v / 25) * 100));
-            case "dribble":    return Math.max(0, Math.min(100, Math.round((1 - (v - 10) / 3.5) * 100)));
+            case "dribble":    return Math.max(0, Math.min(100, Math.round((1 - (v - 10) / 6) * 100)));
             case "shooting":   return Math.min(100, Math.round((v / 100) * 100));
-            case "agility":    return Math.max(0, Math.min(100, Math.round((1 - (v - 8) / 4) * 100)));
-            case "control":    return Math.max(0, Math.min(100, Math.round((1 - (v - 20) / 15) * 100)));
+            case "agility":    return Math.max(0, Math.min(100, Math.round((1 - (v - 14) / 8) * 100)));
+            case "control":    return Math.max(0, Math.min(100, Math.round((1 - (v - 20) / 20) * 100)));
             default: return 0;
           }
         };
@@ -611,43 +611,6 @@ function DashboardPage({ user, academies, resultFiles, dashboards, testTypes }) 
                   {perfData.map((d, i) => (
                     <Cell key={i} fill={d.score >= 80 ? LIME : d.score >= 60 ? "#7FD400" : d.score >= 40 ? "#FFD700" : "#FF9F43"} />
                   ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        );
-      })()}
-
-      {/* 랭킹 TOP3 바차트 */}
-      {rankList.length > 0 && (() => {
-        const medalColors = ["#FFD700", "#C0C0C0", "#CD7F32"];
-        const barData = rankList.map((r, i) => ({
-          name: r.name || "-",
-          value: parseFloat(r.value) || 0,
-          fill: medalColors[i],
-          label: `${r.value}${currentTT?.unit}`,
-        }));
-        const vals = barData.map(d => d.value);
-        const minV = Math.min(...vals);
-        const maxV = Math.max(...vals);
-        const domainMin = currentTT?.lower_better ? Math.max(0, minV - (maxV - minV) * 0.5) : Math.max(0, minV * 0.8);
-        return (
-          <div style={S.card}>
-            <h3 style={{ margin: "0 0 4px", fontSize: 16, fontWeight: 700, color: "#fff" }}>
-              {currentTT?.icon || "🏅"} {currentTT?.name} 랭킹 TOP {rankList.length}
-            </h3>
-            <p style={{ fontSize: 12, color: TEXT2, margin: "0 0 20px" }}>{currentTT?.category} 종목 상위 기록 비교</p>
-            <ResponsiveContainer width="100%" height={180}>
-              <BarChart data={barData} margin={{ top: 4, right: 16, left: -10, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke={BORDER} />
-                <XAxis dataKey="name" tick={{ fill: TEXT2, fontSize: 13 }} />
-                <YAxis domain={[domainMin, maxV * (currentTT?.lower_better ? 1.05 : 1.1)]} tick={{ fill: TEXT2, fontSize: 11 }} />
-                <Tooltip
-                  contentStyle={{ background: CARD2, border: `1px solid ${BORDER}`, borderRadius: 8, fontSize: 13 }}
-                  formatter={(val) => [`${val}${currentTT?.unit}`, currentTT?.name]}
-                />
-                <Bar dataKey="value" radius={[6, 6, 0, 0]}>
-                  {barData.map((d, i) => <Cell key={i} fill={d.fill} />)}
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
@@ -836,10 +799,10 @@ function PlayerAnalysisPage({ user, meta }) {
       case "jump":       return Math.min(100, Math.round((v / 65) * 100));
       case "yoyo":       return Math.min(100, Math.round((v / 40) * 100));
       case "pass":       return Math.min(100, Math.round((v / 25) * 100));
-      case "dribble":    return Math.max(0, Math.min(100, Math.round((1 - (v - 10) / 3.5) * 100)));
+      case "dribble":    return Math.max(0, Math.min(100, Math.round((1 - (v - 10) / 6) * 100)));
       case "shooting":   return Math.min(100, Math.round((v / 100) * 100));
-      case "agility":    return Math.max(0, Math.min(100, Math.round((1 - (v - 8) / 4) * 100)));
-      case "control":    return Math.max(0, Math.min(100, Math.round((1 - (v - 20) / 15) * 100)));
+      case "agility":    return Math.max(0, Math.min(100, Math.round((1 - (v - 14) / 8) * 100)));
+      case "control":    return Math.max(0, Math.min(100, Math.round((1 - (v - 20) / 20) * 100)));
       default: return null;
     }
   };
