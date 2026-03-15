@@ -80,13 +80,13 @@ async function cloudDeleteFile(fileRef) {
 
 // ── 테스트 종목 기본값 ─────────────────────────────────
 const DEFAULT_TEST_TYPES = [
-  { id: "sprint_20m", name: "20M 스프린트",  unit: "초",   lower_better: true,  category: "순발력", icon: "⚡" },
-  { id: "jump",       name: "서전트 점프",    unit: "cm",   lower_better: false, category: "근력",   icon: "🦵" },
-  { id: "yoyo",       name: "YOYO TEST",      unit: "회",   lower_better: false, category: "지구력", icon: "❤️" },
-  { id: "pass",       name: "다각 패스",      unit: "회",   lower_better: false, category: "패스",   icon: "🎯" },
-  { id: "dribble",    name: "드리블 슬라럼",  unit: "초",   lower_better: true,  category: "드리블", icon: "⚽" },
-  { id: "shooting",   name: "슈팅 스피드",    unit: "km/h", lower_better: false, category: "슈팅",   icon: "🥅" },
-  { id: "agility",    name: "민첩성",         unit: "초",   lower_better: true,  category: "민첩성", icon: "🔄" },
+  { id: "sprint_20m", name: "20m 스프린트",    unit: "초",   lower_better: true,  category: "순발력", icon: "⚡" },
+  { id: "jump",       name: "서전트 점프",      unit: "cm",   lower_better: false, category: "근력",   icon: "💪" },
+  { id: "yoyo",       name: "Yoyo",             unit: "회",   lower_better: false, category: "지구력", icon: "🫀" },
+  { id: "pass",       name: "패스",             unit: "회",   lower_better: false, category: "패스",   icon: "🎯" },
+  { id: "dribble",    name: "드리블 슬라럼",    unit: "초",   lower_better: true,  category: "드리블", icon: "⚽" },
+  { id: "shooting",   name: "슈팅스피드",       unit: "km/h", lower_better: false, category: "슈팅",   icon: "🚀" },
+  { id: "agility",    name: "일리노이 테스트",  unit: "초",   lower_better: true,  category: "민첩성", icon: "🏃" },
 ];
 
 // ── localStorage 메타데이터 ────────────────────────────
