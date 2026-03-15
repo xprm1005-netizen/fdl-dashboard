@@ -114,6 +114,11 @@ function validateMeta(parsed) {
   if (!parsed.resultFiles) parsed.resultFiles = [];
   if (!parsed.dashboards)  parsed.dashboards  = {};
   if (!parsed.testTypes)   parsed.testTypes   = DEFAULT_TEST_TYPES;
+  // 클라우드에서 불러온 testTypes에 최신 icon·name·category 강제 동기화
+  parsed.testTypes = parsed.testTypes.map(tt => {
+    const def = DEFAULT_TEST_TYPES.find(d => d.id === tt.id);
+    return def ? { ...tt, icon: def.icon, name: def.name, category: def.category } : tt;
+  });
   // ensure each dashboard has a players array
   Object.values(parsed.dashboards).forEach(db => {
     if (db && !db.players) db.players = [];
