@@ -302,8 +302,6 @@ function DashboardPage({ user, academies, resultFiles, dashboards, testTypes }) 
 
   // Hooks must always be called before any early returns
   const [selectedRankTest, setSelectedRankTest] = useState(testTypes[0]?.id ?? "");
-  const [selectedAnalysisPlayer, setSelectedAnalysisPlayer] = useState(0);
-  const [rankingRound, setRankingRound] = useState(1);
   const MEDALS = ["🥇", "🥈", "🥉"];
 
   // ── 관리자 뷰 ──
@@ -561,244 +559,6 @@ function DashboardPage({ user, academies, resultFiles, dashboards, testTypes }) 
         )}
       </div>
 
-      {/* 선수 전체 랭킹 테이블 */}
-      {(() => {
-        const players = db.players ?? [];
-        if (players.length === 0) return null;
-        const availableRounds = [1, 2, 3].filter(r =>
-          players.some(p => p.records?.[selectedRankTest]?.[r] !== undefined && p.records?.[selectedRankTest]?.[r] !== "")
-        );
-        if (availableRounds.length === 0) return null;
-        const safeRound = availableRounds.includes(rankingRound) ? rankingRound : availableRounds[availableRounds.length - 1];
-        const currentTTr = testTypes.find(t => t.id === selectedRankTest);
-        const ranked = players
-          .filter(p => p.records?.[selectedRankTest]?.[safeRound] !== undefined && p.records?.[selectedRankTest]?.[safeRound] !== "")
-          .map(p => ({ ...p, val: parseFloat(p.records[selectedRankTest][safeRound]) }))
-          .filter(p => !isNaN(p.val))
-          .sort((a, b) => currentTTr?.lower_better ? a.val - b.val : b.val - a.val);
-
-        // 1위 성장 추이 (across rounds)
-        const topPlayer = ranked[0];
-        const growthData = topPlayer ? [1, 2, 3].map(r => {
-          const v = parseFloat(topPlayer.records?.[selectedRankTest]?.[r]);
-          return { round: `${r}차시`, value: isNaN(v) ? null : v };
-        }).filter(d => d.value !== null) : [];
-
-        return (
-          <div style={S.card}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20, flexWrap: "wrap", gap: 10 }}>
-              <div>
-                <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "#fff" }}>📋 선수 전체 랭킹</h3>
-                <p style={{ margin: "4px 0 0", fontSize: 12, color: TEXT2 }}>종목별 전체 순위 및 1위 성장 추이</p>
-              </div>
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                <div style={{ display: "flex", gap: 4 }}>
-                  {availableRounds.map(r => (
-                    <button key={r} onClick={() => setRankingRound(r)} style={{
-                      background: safeRound === r ? LIME : CARD2, color: safeRound === r ? DARK : TEXT2,
-                      border: `1px solid ${safeRound === r ? LIME : BORDER}`, borderRadius: 8,
-                      padding: "6px 14px", fontWeight: 700, cursor: "pointer", fontSize: 13,
-                    }}>{r}차시</button>
-                  ))}
-                </div>
-                <select style={{ ...S.select, fontSize: 13 }} value={selectedRankTest} onChange={e => setSelectedRankTest(e.target.value)}>
-                  {testTypes.map(tt => <option key={tt.id} value={tt.id}>{tt.icon} {tt.name}</option>)}
-                </select>
-              </div>
-            </div>
-
-            <div style={{ display: isMobile ? "block" : "grid", gridTemplateColumns: "1fr 1fr", gap: 24 }}>
-              {/* 랭킹 테이블 */}
-              <div>
-                {ranked.length === 0 ? (
-                  <div style={{ textAlign: "center", padding: 32, color: TEXT2, fontSize: 13 }}>데이터가 없습니다</div>
-                ) : (
-                  <table style={S.table}>
-                    <thead><tr>
-                      <th style={{ ...S.th, width: 40 }}>순위</th>
-                      <th style={S.th}>선수명</th>
-                      {!isMobile && <th style={{ ...S.th, width: 60 }}>나이</th>}
-                      <th style={{ ...S.th, textAlign: "right" }}>기록</th>
-                    </tr></thead>
-                    <tbody>
-                      {ranked.map((p, i) => {
-                        const medalColors = ["#FFD700", "#C0C0C0", "#CD7F32"];
-                        return (
-                          <tr key={i}>
-                            <td style={{ ...S.td, fontWeight: 800, color: i < 3 ? medalColors[i] : TEXT2, textAlign: "center" }}>
-                              {i < 3 ? MEDALS[i] : i + 1}
-                            </td>
-                            <td style={{ ...S.td, fontWeight: i === 0 ? 700 : 400, color: i === 0 ? "#fff" : TEXT }}>
-                              {p.name}
-                            </td>
-                            {!isMobile && <td style={{ ...S.td, color: TEXT2 }}>{p.age ? `${p.age}세` : "-"}</td>}
-                            <td style={{ ...S.td, textAlign: "right", fontWeight: 700, color: i === 0 ? LIME : TEXT }}>
-                              {p.val}{currentTTr?.unit}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                )}
-              </div>
-
-              {/* 1위 성장 추이 */}
-              {growthData.length >= 2 && topPlayer && (
-                <div>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: "#fff", marginBottom: 12 }}>
-                    {MEDALS[0]} {topPlayer.name} 성장 추이
-                  </div>
-                  <ResponsiveContainer width="100%" height={200}>
-                    <LineChart data={growthData} margin={{ top: 4, right: 16, left: -10, bottom: 0 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke={BORDER} />
-                      <XAxis dataKey="round" tick={{ fill: TEXT2, fontSize: 12 }} />
-                      <YAxis tick={{ fill: TEXT2, fontSize: 11 }} />
-                      <Tooltip contentStyle={{ background: CARD2, border: `1px solid ${BORDER}`, borderRadius: 8, fontSize: 13 }}
-                        formatter={v => [`${v}${currentTTr?.unit}`, currentTTr?.name]} />
-                      <Line type="monotone" dataKey="value" stroke={LIME} strokeWidth={2.5} dot={{ fill: LIME, r: 5 }} activeDot={{ r: 7 }} />
-                    </LineChart>
-                  </ResponsiveContainer>
-                </div>
-              )}
-            </div>
-          </div>
-        );
-      })()}
-
-      {/* 선수 분석 */}
-      {(() => {
-        const players = db.players ?? [];
-        if (players.length === 0) return null;
-        const normalizeVal = (testId, val) => {
-          const v = parseFloat(val);
-          if (isNaN(v)) return null;
-          switch(testId) {
-            case "sprint_20m": return Math.max(0, Math.min(100, Math.round((1 - (v - 3.0) / 1.5) * 100)));
-            case "jump":       return Math.min(100, Math.round((v / 65) * 100));
-            case "yoyo":       return Math.min(100, Math.round((v / 40) * 100));
-            case "pass":       return Math.min(100, Math.round((v / 25) * 100));
-            case "dribble":    return Math.max(0, Math.min(100, Math.round((1 - (v - 10) / 3.5) * 100)));
-            case "shooting":   return Math.min(100, Math.round((v / 100) * 100));
-            case "agility":    return Math.max(0, Math.min(100, Math.round((1 - (v - 8) / 4) * 100)));
-            default: return null;
-          }
-        };
-        const safeIdx = Math.min(selectedAnalysisPlayer, players.length - 1);
-        const p = players[safeIdx];
-        if (!p) return null;
-
-        // 최신 라운드 찾기
-        const latestRoundForPlayer = (testId) => {
-          const rec = p.records?.[testId] ?? {};
-          const rounds = Object.keys(rec).map(Number).filter(r => rec[r] !== "");
-          return rounds.length ? Math.max(...rounds) : null;
-        };
-
-        // 레이더 데이터
-        const radarData = testTypes.map(tt => {
-          const lr = latestRoundForPlayer(tt.id);
-          const score = lr ? normalizeVal(tt.id, p.records[tt.id][lr]) : null;
-          return { category: tt.category || tt.name, value: score ?? 0, fullMark: 100 };
-        });
-
-        // 퍼센타일: 각 종목별로 이 선수가 몇 %에 속하는지
-        const percentiles = testTypes.map(tt => {
-          const lr = latestRoundForPlayer(tt.id);
-          if (!lr) return { tt, rank: null, total: 0, pct: null };
-          const myVal = parseFloat(p.records?.[tt.id]?.[lr]);
-          if (isNaN(myVal)) return { tt, rank: null, total: 0, pct: null };
-          const allVals = players.map(pl => parseFloat(pl.records?.[tt.id]?.[lr])).filter(v => !isNaN(v));
-          if (allVals.length === 0) return { tt, rank: null, total: 0, pct: null };
-          const rank = tt.lower_better
-            ? allVals.filter(v => v < myVal).length + 1
-            : allVals.filter(v => v > myVal).length + 1;
-          const pct = Math.round((1 - (rank - 1) / allVals.length) * 100);
-          return { tt, rank, total: allVals.length, pct };
-        });
-
-        // 차시별 변화 (LineChart: rounds on X, normalized score on Y, one line per test)
-        const roundChangeData = [1, 2, 3].map(r => {
-          const entry = { round: `${r}차시` };
-          testTypes.forEach(tt => {
-            const raw = p.records?.[tt.id]?.[r];
-            if (raw !== undefined && raw !== "") {
-              const s = normalizeVal(tt.id, raw);
-              if (s !== null) entry[tt.id] = s;
-            }
-          });
-          return entry;
-        }).filter(d => Object.keys(d).length > 1);
-        const lineColors = [LIME, BLUE, PURPLE, ORANGE, "#FF6B6B", "#4ECDC4", "#FFE66D"];
-
-        return (
-          <div style={S.card}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20, flexWrap: "wrap", gap: 10 }}>
-              <div>
-                <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "#fff" }}>🔍 선수 분석</h3>
-                <p style={{ margin: "4px 0 0", fontSize: 12, color: TEXT2 }}>개별 선수 능력치 레이더, 팀 내 백분위, 차시별 변화</p>
-              </div>
-              <select style={{ ...S.select, fontSize: 13 }} value={safeIdx} onChange={e => setSelectedAnalysisPlayer(Number(e.target.value))}>
-                {players.map((pl, i) => <option key={i} value={i}>{pl.name || `선수 ${i+1}`}</option>)}
-              </select>
-            </div>
-
-            {/* 백분위 카드 */}
-            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "repeat(2, 1fr)" : "repeat(4, 1fr)", gap: 10, marginBottom: 24 }}>
-              {percentiles.filter(d => d.pct !== null).slice(0, 8).map(({ tt, rank, total, pct }) => (
-                <div key={tt.id} style={{ background: CARD2, borderRadius: 10, padding: "12px 14px", textAlign: "center" }}>
-                  <div style={{ fontSize: 18, marginBottom: 4 }}>{tt.icon || "📌"}</div>
-                  <div style={{ fontSize: 11, color: TEXT2, marginBottom: 6 }}>{tt.name}</div>
-                  <div style={{ fontSize: 22, fontWeight: 900, color: pct >= 80 ? LIME : pct >= 50 ? BLUE : ORANGE }}>
-                    상위 {100 - pct + 1}%
-                  </div>
-                  <div style={{ fontSize: 11, color: TEXT2, marginTop: 2 }}>{rank}위 / {total}명</div>
-                </div>
-              ))}
-            </div>
-
-            <div style={{ display: isMobile ? "block" : "grid", gridTemplateColumns: "1fr 1fr", gap: 24 }}>
-              {/* 레이더 차트 */}
-              <div>
-                <div style={{ fontSize: 13, fontWeight: 700, color: "#fff", marginBottom: 12 }}>🕸️ 능력치 레이더</div>
-                <ResponsiveContainer width="100%" height={260}>
-                  <RadarChart data={radarData}>
-                    <PolarGrid stroke={BORDER} />
-                    <PolarAngleAxis dataKey="category" tick={{ fill: TEXT2, fontSize: 12 }} />
-                    <PolarRadiusAxis angle={90} domain={[0, 100]} tick={{ fill: TEXT2, fontSize: 10 }} />
-                    <Radar name={p.name} dataKey="value" stroke={LIME} fill={LIME} fillOpacity={0.2} strokeWidth={2} />
-                  </RadarChart>
-                </ResponsiveContainer>
-              </div>
-
-              {/* 차시별 성장 추이 */}
-              {roundChangeData.length >= 2 && (
-                <div>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: "#fff", marginBottom: 12 }}>📈 차시별 성과 지수 변화</div>
-                  <ResponsiveContainer width="100%" height={260}>
-                    <LineChart data={roundChangeData} margin={{ top: 4, right: 16, left: -10, bottom: 0 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke={BORDER} />
-                      <XAxis dataKey="round" tick={{ fill: TEXT2, fontSize: 12 }} />
-                      <YAxis domain={[0, 100]} tick={{ fill: TEXT2, fontSize: 11 }} />
-                      <Tooltip contentStyle={{ background: CARD2, border: `1px solid ${BORDER}`, borderRadius: 8, fontSize: 12 }}
-                        formatter={(v, name) => {
-                          const tt = testTypes.find(t => t.id === name);
-                          return [`${v}점`, tt ? `${tt.icon} ${tt.name}` : name];
-                        }} />
-                      <Legend formatter={name => { const tt = testTypes.find(t => t.id === name); return tt ? `${tt.icon} ${tt.category}` : name; }} wrapperStyle={{ fontSize: 11 }} />
-                      {testTypes.map((tt, i) => {
-                        const hasData = roundChangeData.some(d => d[tt.id] !== undefined);
-                        return hasData ? <Line key={tt.id} type="monotone" dataKey={tt.id} stroke={lineColors[i % lineColors.length]} strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 6 }} /> : null;
-                      })}
-                    </LineChart>
-                  </ResponsiveContainer>
-                </div>
-              )}
-            </div>
-          </div>
-        );
-      })()}
-
       {/* 종목별 성과 지수 바차트 */}
       {(() => {
         const normalizeVal = (testId, val) => {
@@ -883,6 +643,360 @@ function DashboardPage({ user, academies, resultFiles, dashboards, testTypes }) 
           </div>
         );
       })()}
+    </div>
+  );
+}
+
+// ── 선수 랭킹 페이지 ────────────────────────────────────
+function PlayerRankingPage({ user, meta }) {
+  const isMobile  = useContext(MobileCtx);
+  const isAdmin   = user.role === "admin";
+  const testTypes = meta.testTypes ?? DEFAULT_TEST_TYPES;
+  const MEDALS    = ["🥇", "🥈", "🥉"];
+
+  const [academyId, setAcademyId] = useState(
+    isAdmin ? (meta.academies[0]?.id ?? null) : user.academy_id
+  );
+  const [selectedTest, setSelectedTest] = useState(testTypes[0]?.id ?? "");
+  const [rankingRound, setRankingRound] = useState(1);
+
+  const db      = meta.dashboards?.[academyId] ?? null;
+  const players = db?.players ?? [];
+
+  const availableRounds = [1, 2, 3].filter(r =>
+    players.some(p => p.records?.[selectedTest]?.[r] !== undefined && p.records?.[selectedTest]?.[r] !== "")
+  );
+  const safeRound   = availableRounds.includes(rankingRound) ? rankingRound : (availableRounds[availableRounds.length - 1] ?? 1);
+  const currentTT   = testTypes.find(t => t.id === selectedTest);
+
+  const ranked = players
+    .filter(p => p.records?.[selectedTest]?.[safeRound] !== undefined && p.records?.[selectedTest]?.[safeRound] !== "")
+    .map(p => ({ ...p, val: parseFloat(p.records[selectedTest][safeRound]) }))
+    .filter(p => !isNaN(p.val))
+    .sort((a, b) => currentTT?.lower_better ? a.val - b.val : b.val - a.val);
+
+  const topPlayer  = ranked[0];
+  const growthData = topPlayer ? [1, 2, 3].map(r => {
+    const v = parseFloat(topPlayer.records?.[selectedTest]?.[r]);
+    return { round: `${r}차시`, value: isNaN(v) ? null : v };
+  }).filter(d => d.value !== null) : [];
+
+  const noData = players.length === 0;
+
+  return (
+    <div>
+      <div style={{ marginBottom: 24 }}>
+        <h2 style={{ fontSize: isMobile ? 18 : 22, fontWeight: 800, color: "#fff", margin: 0 }}>📋 선수 랭킹</h2>
+        <p style={{ color: TEXT2, fontSize: 13, marginTop: 4 }}>종목별 전체 순위표 및 1위 성장 추이</p>
+      </div>
+
+      {/* 관리자: 팀 선택 */}
+      {isAdmin && (
+        <div style={{ marginBottom: 20 }}>
+          <select style={S.select} value={academyId ?? ""} onChange={e => setAcademyId(Number(e.target.value))}>
+            {meta.academies.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+          </select>
+        </div>
+      )}
+
+      {noData ? (
+        <div style={{ ...S.card, textAlign: "center", padding: 80 }}>
+          <div style={{ fontSize: 64, marginBottom: 16 }}>📋</div>
+          <div style={{ fontSize: 18, fontWeight: 700, color: "#fff", marginBottom: 8 }}>선수 데이터가 없습니다</div>
+          <div style={{ fontSize: 14, color: TEXT2 }}>관리자가 ✏️ 수기 입력 → 👤 선수 기록 탭에서 데이터를 입력하면 표시됩니다</div>
+        </div>
+      ) : (
+        <div style={S.card}>
+          {/* 컨트롤 */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24, flexWrap: "wrap", gap: 10 }}>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {availableRounds.length > 0 ? availableRounds.map(r => (
+                <button key={r} onClick={() => setRankingRound(r)} style={{
+                  background: safeRound === r ? LIME : CARD2,
+                  color: safeRound === r ? DARK : TEXT2,
+                  border: `1px solid ${safeRound === r ? LIME : BORDER}`,
+                  borderRadius: 8, padding: "6px 16px", fontWeight: 700, cursor: "pointer", fontSize: 13,
+                }}>{r}차시</button>
+              )) : (
+                <span style={{ fontSize: 13, color: TEXT2 }}>기록이 없습니다</span>
+              )}
+            </div>
+            <select style={{ ...S.select, fontSize: 13 }} value={selectedTest} onChange={e => setSelectedTest(e.target.value)}>
+              {testTypes.map(tt => <option key={tt.id} value={tt.id}>{tt.icon} {tt.name}</option>)}
+            </select>
+          </div>
+
+          <div style={{ display: isMobile ? "block" : "grid", gridTemplateColumns: "1fr 1fr", gap: 28 }}>
+            {/* 순위표 */}
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: "#fff", marginBottom: 12 }}>
+                {currentTT?.icon} {currentTT?.name} · {safeRound}차시 순위
+              </div>
+              {ranked.length === 0 ? (
+                <div style={{ textAlign: "center", padding: 32, color: TEXT2, fontSize: 13 }}>해당 차시 데이터가 없습니다</div>
+              ) : (
+                <table style={S.table}>
+                  <thead><tr>
+                    <th style={{ ...S.th, width: 48 }}>순위</th>
+                    <th style={S.th}>선수명</th>
+                    {!isMobile && <th style={{ ...S.th, width: 60 }}>나이</th>}
+                    <th style={{ ...S.th, textAlign: "right" }}>기록</th>
+                  </tr></thead>
+                  <tbody>
+                    {ranked.map((p, i) => {
+                      const medalColors = ["#FFD700", "#C0C0C0", "#CD7F32"];
+                      return (
+                        <tr key={i} style={{ background: i === 0 ? `${LIME}06` : "transparent" }}>
+                          <td style={{ ...S.td, fontWeight: 800, color: i < 3 ? medalColors[i] : TEXT2, textAlign: "center", fontSize: i < 3 ? 18 : 13 }}>
+                            {i < 3 ? MEDALS[i] : i + 1}
+                          </td>
+                          <td style={{ ...S.td, fontWeight: i === 0 ? 700 : 400, color: i === 0 ? "#fff" : TEXT }}>
+                            {p.name}
+                          </td>
+                          {!isMobile && <td style={{ ...S.td, color: TEXT2 }}>{p.age ? `${p.age}세` : "-"}</td>}
+                          <td style={{ ...S.td, textAlign: "right", fontWeight: 700, color: i === 0 ? LIME : TEXT }}>
+                            {p.val}{currentTT?.unit}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
+
+            {/* 1위 성장 추이 */}
+            <div>
+              {growthData.length >= 2 && topPlayer ? (
+                <>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: "#fff", marginBottom: 12 }}>
+                    {MEDALS[0]} {topPlayer.name}의 성장 추이
+                  </div>
+                  <ResponsiveContainer width="100%" height={220}>
+                    <LineChart data={growthData} margin={{ top: 4, right: 16, left: -10, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke={BORDER} />
+                      <XAxis dataKey="round" tick={{ fill: TEXT2, fontSize: 12 }} />
+                      <YAxis tick={{ fill: TEXT2, fontSize: 11 }} />
+                      <Tooltip
+                        contentStyle={{ background: CARD2, border: `1px solid ${BORDER}`, borderRadius: 8, fontSize: 13 }}
+                        formatter={v => [`${v}${currentTT?.unit}`, currentTT?.name]}
+                      />
+                      <Line type="monotone" dataKey="value" stroke={LIME} strokeWidth={2.5}
+                        dot={{ fill: LIME, r: 5 }} activeDot={{ r: 7 }} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </>
+              ) : (
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 200, color: TEXT2, fontSize: 13, flexDirection: "column", gap: 8 }}>
+                  <span style={{ fontSize: 36 }}>📈</span>
+                  <span>2개 이상 차시 데이터가 있으면 성장 추이가 표시됩니다</span>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── 선수 분석 페이지 ────────────────────────────────────
+function PlayerAnalysisPage({ user, meta }) {
+  const isMobile  = useContext(MobileCtx);
+  const isAdmin   = user.role === "admin";
+  const testTypes = meta.testTypes ?? DEFAULT_TEST_TYPES;
+
+  const [academyId,      setAcademyId]      = useState(
+    isAdmin ? (meta.academies[0]?.id ?? null) : user.academy_id
+  );
+  const [selectedPlayer, setSelectedPlayer] = useState(0);
+
+  const db      = meta.dashboards?.[academyId] ?? null;
+  const players = db?.players ?? [];
+  const safeIdx = Math.min(selectedPlayer, Math.max(0, players.length - 1));
+  const p       = players[safeIdx] ?? null;
+
+  const normalizeVal = (testId, val) => {
+    const v = parseFloat(val);
+    if (isNaN(v)) return null;
+    switch(testId) {
+      case "sprint_20m": return Math.max(0, Math.min(100, Math.round((1 - (v - 3.0) / 1.5) * 100)));
+      case "jump":       return Math.min(100, Math.round((v / 65) * 100));
+      case "yoyo":       return Math.min(100, Math.round((v / 40) * 100));
+      case "pass":       return Math.min(100, Math.round((v / 25) * 100));
+      case "dribble":    return Math.max(0, Math.min(100, Math.round((1 - (v - 10) / 3.5) * 100)));
+      case "shooting":   return Math.min(100, Math.round((v / 100) * 100));
+      case "agility":    return Math.max(0, Math.min(100, Math.round((1 - (v - 8) / 4) * 100)));
+      default: return null;
+    }
+  };
+
+  const latestRoundForPlayer = (pl, testId) => {
+    const rec = pl?.records?.[testId] ?? {};
+    const rounds = Object.keys(rec).map(Number).filter(r => rec[r] !== "");
+    return rounds.length ? Math.max(...rounds) : null;
+  };
+
+  const radarData = p ? testTypes.map(tt => {
+    const lr    = latestRoundForPlayer(p, tt.id);
+    const score = lr ? normalizeVal(tt.id, p.records[tt.id][lr]) : null;
+    return { category: tt.category || tt.name, value: score ?? 0, fullMark: 100 };
+  }) : [];
+
+  const percentiles = p ? testTypes.map(tt => {
+    const lr = latestRoundForPlayer(p, tt.id);
+    if (!lr) return { tt, rank: null, total: 0, pct: null };
+    const myVal  = parseFloat(p.records?.[tt.id]?.[lr]);
+    if (isNaN(myVal)) return { tt, rank: null, total: 0, pct: null };
+    const allVals = players.map(pl => parseFloat(pl.records?.[tt.id]?.[lr])).filter(v => !isNaN(v));
+    if (allVals.length === 0) return { tt, rank: null, total: 0, pct: null };
+    const rank = tt.lower_better
+      ? allVals.filter(v => v < myVal).length + 1
+      : allVals.filter(v => v > myVal).length + 1;
+    const pct = Math.round((1 - (rank - 1) / allVals.length) * 100);
+    return { tt, rank, total: allVals.length, pct };
+  }) : [];
+
+  const lineColors = [LIME, BLUE, PURPLE, ORANGE, "#FF6B6B", "#4ECDC4", "#FFE66D"];
+  const roundChangeData = p ? [1, 2, 3].map(r => {
+    const entry = { round: `${r}차시` };
+    testTypes.forEach(tt => {
+      const raw = p.records?.[tt.id]?.[r];
+      if (raw !== undefined && raw !== "") {
+        const s = normalizeVal(tt.id, raw);
+        if (s !== null) entry[tt.id] = s;
+      }
+    });
+    return entry;
+  }).filter(d => Object.keys(d).length > 1) : [];
+
+  const noData = players.length === 0;
+
+  return (
+    <div>
+      <div style={{ marginBottom: 24 }}>
+        <h2 style={{ fontSize: isMobile ? 18 : 22, fontWeight: 800, color: "#fff", margin: 0 }}>🔍 선수 분석</h2>
+        <p style={{ color: TEXT2, fontSize: 13, marginTop: 4 }}>개별 선수의 능력치 레이더, 팀 내 백분위, 차시별 기록 변화</p>
+      </div>
+
+      {/* 관리자: 팀 선택 */}
+      {isAdmin && (
+        <div style={{ marginBottom: 20 }}>
+          <select style={S.select} value={academyId ?? ""} onChange={e => { setAcademyId(Number(e.target.value)); setSelectedPlayer(0); }}>
+            {meta.academies.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+          </select>
+        </div>
+      )}
+
+      {noData ? (
+        <div style={{ ...S.card, textAlign: "center", padding: 80 }}>
+          <div style={{ fontSize: 64, marginBottom: 16 }}>🔍</div>
+          <div style={{ fontSize: 18, fontWeight: 700, color: "#fff", marginBottom: 8 }}>선수 데이터가 없습니다</div>
+          <div style={{ fontSize: 14, color: TEXT2 }}>관리자가 ✏️ 수기 입력 → 👤 선수 기록 탭에서 데이터를 입력하면 표시됩니다</div>
+        </div>
+      ) : (
+        <>
+          {/* 선수 선택 */}
+          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 24, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 13, color: TEXT2, fontWeight: 500 }}>선수 선택</span>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {players.map((pl, i) => (
+                <button key={i} onClick={() => setSelectedPlayer(i)} style={{
+                  background: safeIdx === i ? LIME : CARD2,
+                  color: safeIdx === i ? DARK : TEXT2,
+                  border: `1px solid ${safeIdx === i ? LIME : BORDER}`,
+                  borderRadius: 20, padding: "6px 16px", fontWeight: safeIdx === i ? 700 : 400,
+                  cursor: "pointer", fontSize: 13,
+                }}>{pl.name || `선수 ${i+1}`}</button>
+              ))}
+            </div>
+          </div>
+
+          {p && (
+            <>
+              {/* 선수 기본 정보 */}
+              <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 24, padding: "16px 20px", background: CARD, borderRadius: 14, border: `1px solid ${BORDER}` }}>
+                <div style={{ width: 48, height: 48, background: `${LIME}20`, borderRadius: 12, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22 }}>👤</div>
+                <div>
+                  <div style={{ fontSize: 20, fontWeight: 800, color: "#fff" }}>{p.name}</div>
+                  {p.age && <div style={{ fontSize: 13, color: TEXT2, marginTop: 2 }}>{p.age}세</div>}
+                </div>
+              </div>
+
+              {/* 백분위 카드 */}
+              {percentiles.some(d => d.pct !== null) && (
+                <div style={{ marginBottom: 24 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: "#fff", marginBottom: 12 }}>📊 팀 내 백분위</div>
+                  <div style={{ display: "grid", gridTemplateColumns: isMobile ? "repeat(2, 1fr)" : "repeat(4, 1fr)", gap: 10 }}>
+                    {percentiles.filter(d => d.pct !== null).map(({ tt, rank, total, pct }) => (
+                      <div key={tt.id} style={{ background: CARD2, borderRadius: 12, padding: "14px 16px", textAlign: "center", border: `1px solid ${pct >= 80 ? `${LIME}40` : BORDER}` }}>
+                        <div style={{ fontSize: 20, marginBottom: 4 }}>{tt.icon || "📌"}</div>
+                        <div style={{ fontSize: 11, color: TEXT2, marginBottom: 8 }}>{tt.name}</div>
+                        <div style={{ fontSize: 24, fontWeight: 900, color: pct >= 80 ? LIME : pct >= 50 ? BLUE : ORANGE }}>
+                          상위 {100 - pct + 1}%
+                        </div>
+                        <div style={{ fontSize: 11, color: TEXT2, marginTop: 4 }}>{rank}위 / {total}명</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* 레이더 + 차시별 변화 */}
+              <div style={{ display: isMobile ? "block" : "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
+                <div style={S.card}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: "#fff", marginBottom: 16 }}>🕸️ 능력치 레이더 차트</div>
+                  <ResponsiveContainer width="100%" height={280}>
+                    <RadarChart data={radarData}>
+                      <PolarGrid stroke={BORDER} />
+                      <PolarAngleAxis dataKey="category" tick={{ fill: TEXT2, fontSize: 12 }} />
+                      <PolarRadiusAxis angle={90} domain={[0, 100]} tick={{ fill: TEXT2, fontSize: 10 }} />
+                      <Radar name={p.name} dataKey="value" stroke={LIME} fill={LIME} fillOpacity={0.2} strokeWidth={2} />
+                    </RadarChart>
+                  </ResponsiveContainer>
+                </div>
+
+                <div style={S.card}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: "#fff", marginBottom: 16 }}>📈 차시별 성과 지수 변화</div>
+                  {roundChangeData.length >= 2 ? (
+                    <ResponsiveContainer width="100%" height={280}>
+                      <LineChart data={roundChangeData} margin={{ top: 4, right: 16, left: -10, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke={BORDER} />
+                        <XAxis dataKey="round" tick={{ fill: TEXT2, fontSize: 12 }} />
+                        <YAxis domain={[0, 100]} tick={{ fill: TEXT2, fontSize: 11 }} />
+                        <Tooltip
+                          contentStyle={{ background: CARD2, border: `1px solid ${BORDER}`, borderRadius: 8, fontSize: 12 }}
+                          formatter={(v, name) => {
+                            const tt = testTypes.find(t => t.id === name);
+                            return [`${v}점`, tt ? `${tt.icon} ${tt.name}` : name];
+                          }}
+                        />
+                        <Legend
+                          formatter={name => { const tt = testTypes.find(t => t.id === name); return tt ? `${tt.icon} ${tt.category}` : name; }}
+                          wrapperStyle={{ fontSize: 11 }}
+                        />
+                        {testTypes.map((tt, i) => {
+                          const hasData = roundChangeData.some(d => d[tt.id] !== undefined);
+                          return hasData ? (
+                            <Line key={tt.id} type="monotone" dataKey={tt.id}
+                              stroke={lineColors[i % lineColors.length]} strokeWidth={2}
+                              dot={{ r: 4 }} activeDot={{ r: 6 }} />
+                          ) : null;
+                        })}
+                      </LineChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 240, color: TEXT2, fontSize: 13, flexDirection: "column", gap: 8 }}>
+                      <span style={{ fontSize: 36 }}>📈</span>
+                      <span>2개 이상 차시 데이터가 있으면 변화 차트가 표시됩니다</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </>
+          )}
+        </>
+      )}
     </div>
   );
 }
@@ -1946,15 +2060,19 @@ export default function App() {
   if (!user) return <LoginScreen users={meta.users} onLogin={setUser} />;
 
   const adminNav = [
-    { id: "dashboard",  icon: "📊", label: "대시보드" },
-    { id: "teams",      icon: "🏫", label: "팀 관리" },
-    { id: "dataentry",  icon: "✏️",  label: "수기 입력" },
-    { id: "upload",     icon: "📤", label: "파일 업로드" },
-    { id: "testtypes",  icon: "⚙️",  label: "종목 관리" },
+    { id: "dashboard",       icon: "📊", label: "대시보드" },
+    { id: "player-ranking",  icon: "📋", label: "선수 랭킹" },
+    { id: "player-analysis", icon: "🔍", label: "선수 분석" },
+    { id: "teams",           icon: "🏫", label: "팀 관리" },
+    { id: "dataentry",       icon: "✏️",  label: "수기 입력" },
+    { id: "upload",          icon: "📤", label: "파일 업로드" },
+    { id: "testtypes",       icon: "⚙️",  label: "종목 관리" },
   ];
   const teamNav = [
-    { id: "dashboard", icon: "📊", label: "대시보드" },
-    { id: "download",  icon: "📁", label: "결과 다운로드" },
+    { id: "dashboard",       icon: "📊", label: "대시보드" },
+    { id: "player-ranking",  icon: "📋", label: "선수 랭킹" },
+    { id: "player-analysis", icon: "🔍", label: "선수 분석" },
+    { id: "download",        icon: "📁", label: "결과 다운로드" },
   ];
   const navItems = isAdmin ? adminNav : teamNav;
 
@@ -2034,12 +2152,14 @@ export default function App() {
 
         {/* 콘텐츠 */}
         <div style={{ ...S.content, padding: isMobile ? "16px" : "28px 32px" }}>
-          {page === "dashboard"  && <DashboardPage user={user} academies={meta.academies} resultFiles={meta.resultFiles} dashboards={meta.dashboards} testTypes={meta.testTypes ?? DEFAULT_TEST_TYPES} />}
-          {page === "teams"      && isAdmin && <TeamsPage meta={meta} onMetaChange={setMeta} />}
-          {page === "dataentry"  && isAdmin && <DataEntryPage meta={meta} onMetaChange={setMeta} />}
-          {page === "upload"     && isAdmin && <UploadPage meta={meta} onUpload={handleUpload} onDeleteFile={(id) => setMeta(prev => ({ ...prev, resultFiles: prev.resultFiles.filter(f => f.id !== id) }))} />}
-          {page === "testtypes"  && isAdmin && <TestTypesPage meta={meta} onMetaChange={setMeta} />}
-          {page === "download"   && !isAdmin && <DownloadPage user={user} meta={meta} />}
+          {page === "dashboard"       && <DashboardPage user={user} academies={meta.academies} resultFiles={meta.resultFiles} dashboards={meta.dashboards} testTypes={meta.testTypes ?? DEFAULT_TEST_TYPES} />}
+          {page === "player-ranking"  && <PlayerRankingPage user={user} meta={meta} />}
+          {page === "player-analysis" && <PlayerAnalysisPage user={user} meta={meta} />}
+          {page === "teams"           && isAdmin && <TeamsPage meta={meta} onMetaChange={setMeta} />}
+          {page === "dataentry"       && isAdmin && <DataEntryPage meta={meta} onMetaChange={setMeta} />}
+          {page === "upload"          && isAdmin && <UploadPage meta={meta} onUpload={handleUpload} onDeleteFile={(id) => setMeta(prev => ({ ...prev, resultFiles: prev.resultFiles.filter(f => f.id !== id) }))} />}
+          {page === "testtypes"       && isAdmin && <TestTypesPage meta={meta} onMetaChange={setMeta} />}
+          {page === "download"        && !isAdmin && <DownloadPage user={user} meta={meta} />}
         </div>
       </div>
 
