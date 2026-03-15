@@ -1,198 +1,147 @@
-import { useState, useEffect, useRef, createContext, useContext } from "react";
+import { useState, useEffect, useCallback } from "react";
+import { BarChart, Bar, LineChart, Line, RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, Legend } from "recharts";
 
-const MobileCtx = createContext(false);
-import {
-  RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
-  ResponsiveContainer,
-} from "recharts";
-
-// ── 색상 ───────────────────────────────────────────────
-const LIME   = "#C8FF00";
-const DARK   = "#0A0A0A";
-const CARD   = "#141414";
-const CARD2  = "#1A1A1A";
+const LIME = "#C8FF00";
+const DARK = "#0A0A0A";
+const CARD = "#141414";
+const CARD2 = "#1A1A1A";
 const BORDER = "#2A2A2A";
-const TEXT   = "#E0E0E0";
-const TEXT2  = "#888888";
-const RED    = "#FF4D4D";
-const BLUE   = "#4DA6FF";
+const TEXT = "#E0E0E0";
+const TEXT2 = "#888888";
+const RED = "#FF4D4D";
+const BLUE = "#4DA6FF";
 const PURPLE = "#A855F7";
 const ORANGE = "#FF9F43";
 
-// ── 클라우드 파일 저장 (JSONBin per-file bin) ──────────
-function fileToBase64(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload  = e => resolve(e.target.result.split(",")[1]);
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-}
-function base64ToBlob(b64, mime = "application/pdf") {
-  const bytes = atob(b64);
-  const arr   = new Uint8Array(bytes.length);
-  for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
-  return new Blob([arr], { type: mime });
-}
-const CHUNK_SIZE = 72 * 1024; // 72KB chars → well under JSONBin 100KB limit
-
-async function cloudUploadFile(file) {
-  const b64 = await fileToBase64(file);
-  const chunks = [];
-  for (let i = 0; i < b64.length; i += CHUNK_SIZE) {
-    chunks.push(b64.slice(i, i + CHUNK_SIZE));
-  }
-  const binIds = await Promise.all(chunks.map(async (chunk) => {
-    const res = await fetch("/api/file-save", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ _data: chunk }),
-    });
-    if (!res.ok) throw new Error(`업로드 실패 (${res.status})`);
-    const json = await res.json();
-    return json.binId;
-  }));
-  return binIds; // array of bin IDs
-}
-async function cloudDownloadFile(fileRef) {
-  const binIds = Array.isArray(fileRef) ? fileRef : (fileRef ? [fileRef] : []);
-  if (binIds.length === 0) return null;
-  const chunks = await Promise.all(binIds.map(async (binId) => {
-    const res = await fetch(`/api/file-load?binId=${binId}`);
-    if (!res.ok) return null;
-    const json = await res.json();
-    return json?.data ?? null;
-  }));
-  if (chunks.some(c => c === null)) return null;
-  return chunks.join("");
-}
-async function cloudDeleteFile(fileRef) {
-  const binIds = Array.isArray(fileRef) ? fileRef : (fileRef ? [fileRef] : []);
-  if (binIds.length === 0) return;
-  await Promise.all(binIds.map(binId =>
-    fetch(`https://api.jsonbin.io/v3/b/${binId}`, {
-      method: "DELETE",
-      headers: { "X-Master-Key": JSONBIN_MASTER_KEY },
-    })
-  ));
-}
-
-// ── 테스트 종목 기본값 ─────────────────────────────────
-const DEFAULT_TEST_TYPES = [
-  { id: "sprint_20m", name: "20M 스프린트",  unit: "초",   lower_better: true  },
-  { id: "jump",       name: "서전트 점프",    unit: "cm",   lower_better: false },
-  { id: "yoyo",       name: "YOYO TEST",      unit: "회",   lower_better: false },
-  { id: "pass",       name: "다각 패스",      unit: "회",   lower_better: false },
-  { id: "dribble",    name: "드리블 슬라럼",  unit: "초",   lower_better: true  },
-  { id: "shooting",   name: "슈팅 스피드",    unit: "km/h", lower_better: false },
-  { id: "agility",    name: "민첩성",         unit: "초",   lower_better: true  },
+// Mock Data
+const ACADEMIES = [
+  { id: 1, name: "KSA 축구 아카데미", location: "서울 강남구", players: 42, created_at: "2025-03-15" },
+  { id: 2, name: "RC스포츠 아카데미", location: "서울 송파구", players: 38, created_at: "2025-04-01" },
+  { id: 3, name: "MK 풋볼클럽", location: "경기 성남시", players: 35, created_at: "2025-05-10" },
+  { id: 4, name: "REVE 축구교실", location: "경기 용인시", players: 28, created_at: "2025-06-20" },
+  { id: 5, name: "KICKS 아카데미", location: "서울 강동구", players: 31, created_at: "2025-07-01" },
 ];
 
-// ── localStorage 메타데이터 ────────────────────────────
-const INITIAL_STATE = {
-  academies: [
-    { id: 1, name: "test팀", created_at: "2026-01-01" },
-  ],
-  users: [
-    { id: 1, email: "admin@footballdatalab.com", password: "admin123", role: "admin", academy_id: null, name: "관리자" },
-    { id: 2, email: "test@test.com", password: "test123", role: "academy", academy_id: 1, name: "test팀" },
-  ],
-  resultFiles: [],
-  players: [],
-  dashboards: {},
-  testTypes: DEFAULT_TEST_TYPES,
-};
+const USERS = [
+  { id: 1, email: "admin@fdl.com", password: "admin", role: "admin", academy_id: null, name: "관리자" },
+  { id: 2, email: "ksa@academy.com", password: "ksa123", role: "academy", academy_id: 1, name: "KSA 관리자" },
+  { id: 3, email: "rc@academy.com", password: "rc123", role: "academy", academy_id: 2, name: "RC스포츠 관리자" },
+  { id: 4, email: "mk@academy.com", password: "mk123", role: "academy", academy_id: 3, name: "MK 관리자" },
+];
 
-// ── 클라우드 저장 (JSONBin.io 직접 호출) ──────────────
-const JSONBIN_BIN_ID     = "69b4f57baa77b81da9e2c4ad";
-const JSONBIN_MASTER_KEY = "$2a$10$XXKBE3KoEEZGb2KQoLME4uPbKKJoq1tSdfcsSckzH5RiITZqPCgyq";
+const TEST_TYPES = [
+  { id: "sprint_20m", name: "20M 스프린트", unit: "초", category: "순발력", icon: "⚡", lower_better: true },
+  { id: "jump", name: "서전트 점프", unit: "cm", category: "근력", icon: "🦵", lower_better: false },
+  { id: "yoyo", name: "YOYO TEST", unit: "회", category: "지구력", icon: "❤️", lower_better: false },
+  { id: "pass", name: "다각 패스 TEST", unit: "회", category: "패스", icon: "🎯", lower_better: false },
+  { id: "dribble", name: "드리블 슬라럼", unit: "초", category: "드리블", icon: "⚽", lower_better: true },
+  { id: "shooting", name: "슈팅 스피드", unit: "km/h", category: "슈팅", icon: "🥅", lower_better: false },
+  { id: "agility", name: "민첩성 테스트", unit: "초", category: "민첩성", icon: "🔄", lower_better: true },
+];
 
-function validateMeta(parsed) {
-  if (!parsed.users)       parsed.users       = INITIAL_STATE.users;
-  if (!parsed.players)     parsed.players     = [];
-  if (!parsed.resultFiles) parsed.resultFiles = [];
-  if (!parsed.dashboards)  parsed.dashboards  = {};
-  if (!parsed.testTypes)   parsed.testTypes   = DEFAULT_TEST_TYPES;
-}
+const PLAYERS_DATA = {};
+const PLAYER_NAMES = [
+  "김민준","박서준","이도윤","최준호","정예준","강지호","윤시우","한승민","오태양","임현우",
+  "송재원","조건우","배유찬","허민석","문주원","남하준","신동현","권서진","류우진","장태민",
+  "양지안","곽승우","홍세현","전준혁","황인우","구동윤","차시훈","표예성","봉지율","원하람",
+  "설윤호","진서윤","편도현","방지환","감우빈","팽석현","노은찬","추다온","하루한","사윤서",
+  "옥민성","도재하"
+];
 
-async function loadFromCloud() {
-  const res = await fetch(`https://api.jsonbin.io/v3/b/${JSONBIN_BIN_ID}/latest`, {
-    headers: { "X-Master-Key": JSONBIN_MASTER_KEY },
-  });
-  if (!res.ok) throw new Error(`load ${res.status}`);
-  const json = await res.json();
-  const data = json?.record ?? null;
-  return data && data.init === true ? null : data;
-}
-
-async function saveToCloud(data) {
-  const res = await fetch(`https://api.jsonbin.io/v3/b/${JSONBIN_BIN_ID}`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json", "X-Master-Key": JSONBIN_MASTER_KEY },
-    body: JSON.stringify(data),
-  });
-  if (!res.ok) throw new Error(`save ${res.status}`);
-}
-
-async function loadMeta() {
-  let local = null;
-  try {
-    const s = localStorage.getItem("fdl-meta");
-    if (s) { local = JSON.parse(s); validateMeta(local); }
-  } catch {}
-  try {
-    const cloud = await loadFromCloud();
-    if (cloud && typeof cloud === "object") {
-      validateMeta(cloud);
-      localStorage.setItem("fdl-meta", JSON.stringify(cloud));
-      return cloud;
+function generatePlayerData() {
+  ACADEMIES.forEach(academy => {
+    PLAYERS_DATA[academy.id] = [];
+    const count = academy.players;
+    for (let i = 0; i < count; i++) {
+      const playerName = PLAYER_NAMES[i % PLAYER_NAMES.length] + (i >= PLAYER_NAMES.length ? `(${Math.floor(i/PLAYER_NAMES.length)+1})` : "");
+      const records = {};
+      TEST_TYPES.forEach(tt => {
+        records[tt.id] = {};
+        for (let round = 1; round <= 3; round++) {
+          let base;
+          switch(tt.id) {
+            case "sprint_20m": base = 3.5 + Math.random() * 1.2; break;
+            case "jump": base = 35 + Math.random() * 30; break;
+            case "yoyo": base = 20 + Math.floor(Math.random() * 20); break;
+            case "pass": base = 10 + Math.floor(Math.random() * 15); break;
+            case "dribble": base = 10.5 + Math.random() * 3; break;
+            case "shooting": base = 50 + Math.random() * 50; break;
+            case "agility": base = 8 + Math.random() * 4; break;
+            default: base = 10;
+          }
+          const improvement = tt.lower_better ? -(round-1)*0.1*Math.random() : (round-1)*2*Math.random();
+          records[tt.id][round] = Math.round((base + improvement) * 100) / 100;
+        }
+      });
+      PLAYERS_DATA[academy.id].push({ name: playerName, age: 8 + Math.floor(Math.random()*7), position: ["FW","MF","DF","GK"][Math.floor(Math.random()*4)], records });
     }
-  } catch (e) { console.warn("클라우드 로드 실패:", e.message); }
-  return local ?? INITIAL_STATE;
+  });
 }
+generatePlayerData();
 
-async function saveMeta(data) {
-  localStorage.setItem("fdl-meta", JSON.stringify(data));
-  try { await saveToCloud(data); } catch (e) { console.warn("클라우드 저장 실패:", e.message); }
-}
+const TESTS = [
+  { id: 1, year: 2025, round: 1, academy_id: 1, date: "2025-04-15" },
+  { id: 2, year: 2025, round: 2, academy_id: 1, date: "2025-07-20" },
+  { id: 3, year: 2025, round: 3, academy_id: 1, date: "2025-10-10" },
+  { id: 4, year: 2025, round: 1, academy_id: 2, date: "2025-04-18" },
+  { id: 5, year: 2025, round: 2, academy_id: 2, date: "2025-07-22" },
+  { id: 6, year: 2025, round: 3, academy_id: 2, date: "2025-10-12" },
+  { id: 7, year: 2025, round: 1, academy_id: 3, date: "2025-04-20" },
+  { id: 8, year: 2025, round: 2, academy_id: 3, date: "2025-07-25" },
+  { id: 9, year: 2025, round: 1, academy_id: 4, date: "2025-05-01" },
+  { id: 10, year: 2025, round: 2, academy_id: 4, date: "2025-08-01" },
+  { id: 11, year: 2025, round: 1, academy_id: 5, date: "2025-05-05" },
+  { id: 12, year: 2025, round: 2, academy_id: 5, date: "2025-08-05" },
+  { id: 13, year: 2025, round: 3, academy_id: 5, date: "2025-11-01" },
+];
 
-// ── 스타일 ─────────────────────────────────────────────
-const S = {
-  app:       { fontFamily: "'Pretendard','Noto Sans KR',-apple-system,sans-serif", background: DARK, color: TEXT, minHeight: "100vh", display: "flex" },
-  sidebar:   { width: 260, background: "#0D0D0D", borderRight: `1px solid ${BORDER}`, display: "flex", flexDirection: "column", position: "fixed", top: 0, left: 0, bottom: 0, zIndex: 100 },
-  sidebarC:  { width: 64 },
-  main:      { flex: 1, marginLeft: 260, minHeight: "100vh" },
-  mainC:     { marginLeft: 64 },
-  topBar:    { height: 64, background: "#0D0D0D", borderBottom: `1px solid ${BORDER}`, display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 32px", position: "sticky", top: 0, zIndex: 50 },
-  content:   { padding: "28px 32px" },
-  card:      { background: CARD, borderRadius: 16, border: `1px solid ${BORDER}`, padding: 24, marginBottom: 20 },
-  statCard:  { background: CARD, borderRadius: 16, border: `1px solid ${BORDER}`, padding: "20px 24px", flex: 1, minWidth: 180 },
-  btn:       { background: LIME, color: DARK, border: "none", borderRadius: 10, padding: "10px 20px", fontWeight: 700, cursor: "pointer", fontSize: 14 },
-  btnSm:     { background: LIME, color: DARK, border: "none", borderRadius: 8, padding: "7px 14px", fontWeight: 700, cursor: "pointer", fontSize: 13 },
-  btnOut:    { background: "transparent", color: LIME, border: `1px solid ${LIME}`, borderRadius: 10, padding: "10px 20px", fontWeight: 600, cursor: "pointer", fontSize: 14 },
-  btnGhost:  { background: "transparent", color: TEXT2, border: "none", cursor: "pointer", padding: "8px 12px", borderRadius: 8, fontSize: 14 },
-  btnDanger: { background: "transparent", color: RED, border: `1px solid ${RED}40`, borderRadius: 8, padding: "7px 14px", fontWeight: 600, cursor: "pointer", fontSize: 13 },
-  input:     { background: CARD2, color: TEXT, border: `1px solid ${BORDER}`, borderRadius: 10, padding: "12px 16px", fontSize: 14, width: "100%", boxSizing: "border-box", outline: "none" },
-  select:    { background: CARD2, color: TEXT, border: `1px solid ${BORDER}`, borderRadius: 10, padding: "10px 14px", fontSize: 14, outline: "none", cursor: "pointer" },
-  badge:     { display: "inline-flex", alignItems: "center", gap: 4, padding: "4px 10px", borderRadius: 20, fontSize: 12, fontWeight: 600 },
-  table:     { width: "100%", borderCollapse: "separate", borderSpacing: 0 },
-  th:        { padding: "12px 16px", textAlign: "left", fontSize: 12, fontWeight: 600, color: TEXT2, textTransform: "uppercase", letterSpacing: 0.5, borderBottom: `1px solid ${BORDER}` },
-  td:        { padding: "14px 16px", borderBottom: `1px solid ${BORDER}15`, fontSize: 14 },
-  loginBg:   { minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: `linear-gradient(135deg,${DARK} 0%,#111 50%,#0D0D0D 100%)` },
+const RESULT_FILES = [
+  { id: 1, academy_id: 1, test_id: 1, file_name: "KSA_2025_1차시_개인리포트.pdf", file_type: "pdf" },
+  { id: 2, academy_id: 1, test_id: 1, file_name: "KSA_2025_1차시_팀리포트.pdf", file_type: "pdf" },
+  { id: 3, academy_id: 1, test_id: 2, file_name: "KSA_2025_2차시_개인리포트.pdf", file_type: "pdf" },
+  { id: 4, academy_id: 1, test_id: 2, file_name: "KSA_2025_2차시_팀리포트.pdf", file_type: "pdf" },
+  { id: 5, academy_id: 1, test_id: 3, file_name: "KSA_2025_3차시_개인리포트.pdf", file_type: "pdf" },
+  { id: 6, academy_id: 1, test_id: 3, file_name: "KSA_2025_3차시_팀리포트.xlsx", file_type: "excel" },
+  { id: 7, academy_id: 2, test_id: 4, file_name: "RC스포츠_2025_1차시_리포트.pdf", file_type: "pdf" },
+  { id: 8, academy_id: 2, test_id: 5, file_name: "RC스포츠_2025_2차시_리포트.pdf", file_type: "pdf" },
+  { id: 9, academy_id: 3, test_id: 7, file_name: "MK_2025_1차시_리포트.pdf", file_type: "pdf" },
+  { id: 10, academy_id: 4, test_id: 9, file_name: "REVE_2025_1차시_리포트.pdf", file_type: "pdf" },
+  { id: 11, academy_id: 5, test_id: 11, file_name: "KICKS_2025_1차시_리포트.pdf", file_type: "pdf" },
+  { id: 12, academy_id: 5, test_id: 12, file_name: "KICKS_2025_2차시_리포트.pdf", file_type: "pdf" },
+];
+
+// Styles
+const styles = {
+  app: { fontFamily: "'Pretendard', 'Noto Sans KR', -apple-system, sans-serif", background: DARK, color: TEXT, minHeight: "100vh", display: "flex" },
+  sidebar: { width: 260, background: "#0D0D0D", borderRight: `1px solid ${BORDER}`, display: "flex", flexDirection: "column", position: "fixed", top: 0, left: 0, bottom: 0, zIndex: 100 },
+  sidebarCollapsed: { width: 64 },
+  main: { flex: 1, marginLeft: 260, minHeight: "100vh" },
+  mainCollapsed: { marginLeft: 64 },
+  topBar: { height: 64, background: "#0D0D0D", borderBottom: `1px solid ${BORDER}`, display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 32px", position: "sticky", top: 0, zIndex: 50 },
+  content: { padding: "28px 32px" },
+  card: { background: CARD, borderRadius: 16, border: `1px solid ${BORDER}`, padding: 24, marginBottom: 20 },
+  cardHover: { transition: "all 0.2s ease", cursor: "pointer" },
+  statCard: { background: CARD, borderRadius: 16, border: `1px solid ${BORDER}`, padding: "20px 24px", flex: 1, minWidth: 200 },
+  btn: { background: LIME, color: DARK, border: "none", borderRadius: 10, padding: "10px 20px", fontWeight: 700, cursor: "pointer", fontSize: 14, transition: "all 0.15s ease" },
+  btnOutline: { background: "transparent", color: LIME, border: `1px solid ${LIME}`, borderRadius: 10, padding: "10px 20px", fontWeight: 600, cursor: "pointer", fontSize: 14 },
+  btnGhost: { background: "transparent", color: TEXT2, border: "none", cursor: "pointer", padding: "8px 12px", borderRadius: 8, fontSize: 14 },
+  input: { background: CARD2, color: TEXT, border: `1px solid ${BORDER}`, borderRadius: 10, padding: "12px 16px", fontSize: 14, width: "100%", boxSizing: "border-box", outline: "none" },
+  select: { background: CARD2, color: TEXT, border: `1px solid ${BORDER}`, borderRadius: 10, padding: "10px 14px", fontSize: 14, outline: "none", cursor: "pointer" },
+  badge: { display: "inline-flex", alignItems: "center", gap: 4, padding: "4px 10px", borderRadius: 20, fontSize: 12, fontWeight: 600 },
+  table: { width: "100%", borderCollapse: "separate", borderSpacing: 0 },
+  th: { padding: "12px 16px", textAlign: "left", fontSize: 12, fontWeight: 600, color: TEXT2, textTransform: "uppercase", letterSpacing: 0.5, borderBottom: `1px solid ${BORDER}` },
+  td: { padding: "14px 16px", borderBottom: `1px solid ${BORDER}15`, fontSize: 14 },
+  loginBg: { minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: `linear-gradient(135deg, ${DARK} 0%, #111 50%, #0D0D0D 100%)`, position: "relative", overflow: "hidden" },
 };
 
-function fmt(bytes) {
-  if (bytes < 1024) return `${bytes}B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
-  return `${(bytes / 1024 / 1024).toFixed(1)}MB`;
-}
-
-// ── 공통 ───────────────────────────────────────────────
+// Components
 function Logo({ collapsed }) {
   return (
     <div style={{ padding: collapsed ? "20px 12px" : "20px 24px", borderBottom: `1px solid ${BORDER}` }}>
       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-        <div style={{ width: 36, height: 36, background: LIME, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 900, color: DARK, fontSize: 16, flexShrink: 0 }}>FDL</div>
+        <div style={{ width: 36, height: 36, background: LIME, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 900, color: DARK, fontSize: 16, flexShrink: 0 }}>
+          FDL
+        </div>
         {!collapsed && (
           <div>
             <div style={{ fontWeight: 800, fontSize: 15, color: "#fff", letterSpacing: -0.5 }}>FOOTBALL</div>
@@ -204,19 +153,34 @@ function Logo({ collapsed }) {
   );
 }
 
-function NavItem({ icon, label, active, onClick, collapsed }) {
+function NavItem({ icon, label, active, onClick, collapsed, badge: badgeCount }) {
   return (
-    <div onClick={onClick} style={{ display: "flex", alignItems: "center", gap: 12, padding: collapsed ? "12px 20px" : "12px 24px", cursor: "pointer", background: active ? `${LIME}12` : "transparent", borderLeft: active ? `3px solid ${LIME}` : "3px solid transparent", color: active ? "#fff" : TEXT2, fontSize: 14, fontWeight: active ? 600 : 400, transition: "all 0.15s ease" }}>
+    <div
+      onClick={onClick}
+      style={{
+        display: "flex", alignItems: "center", gap: 12,
+        padding: collapsed ? "12px 20px" : "12px 24px",
+        cursor: "pointer", borderRadius: 0,
+        background: active ? `${LIME}12` : "transparent",
+        borderLeft: active ? `3px solid ${LIME}` : "3px solid transparent",
+        color: active ? "#fff" : TEXT2,
+        transition: "all 0.15s ease",
+        fontSize: 14, fontWeight: active ? 600 : 400,
+        position: "relative",
+      }}
+    >
       <span style={{ fontSize: 18, width: 24, textAlign: "center" }}>{icon}</span>
       {!collapsed && <span>{label}</span>}
+      {badgeCount && !collapsed && (
+        <span style={{ marginLeft: "auto", background: LIME, color: DARK, borderRadius: 10, padding: "2px 8px", fontSize: 11, fontWeight: 700 }}>{badgeCount}</span>
+      )}
     </div>
   );
 }
 
-
 function StatCard({ icon, label, value, sub, color = LIME }) {
   return (
-    <div style={S.statCard}>
+    <div style={styles.statCard}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
         <span style={{ fontSize: 20 }}>{icon}</span>
         <span style={{ fontSize: 13, color: TEXT2, fontWeight: 500 }}>{label}</span>
@@ -227,253 +191,288 @@ function StatCard({ icon, label, value, sub, color = LIME }) {
   );
 }
 
-// ── 로그인 ─────────────────────────────────────────────
-function LoginScreen({ users, onLogin }) {
+function RankBadge({ rank }) {
+  const colors = { 1: "#FFD700", 2: "#C0C0C0", 3: "#CD7F32" };
+  const bg = colors[rank] || TEXT2;
+  return (
+    <span style={{ width: 28, height: 28, borderRadius: "50%", background: rank <= 3 ? bg : CARD2, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 800, color: rank <= 3 ? DARK : TEXT2 }}>
+      {rank}
+    </span>
+  );
+}
+
+function ChangeIndicator({ value, unit, lowerBetter }) {
+  if (value === 0 || value === undefined) return <span style={{ color: TEXT2 }}>-</span>;
+  const isPositive = lowerBetter ? value < 0 : value > 0;
+  const arrow = isPositive ? "▲" : "▼";
+  const color = isPositive ? LIME : RED;
+  return (
+    <span style={{ color, fontWeight: 600, fontSize: 13 }}>
+      {arrow} {Math.abs(value).toFixed(2)}{unit}
+    </span>
+  );
+}
+
+// Login Screen
+function LoginScreen({ onLogin }) {
   const [email, setEmail] = useState("");
-  const [pw,    setPw]    = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const handle = () => {
-    setLoading(true); setError("");
+  const handleLogin = () => {
+    setLoading(true);
+    setError("");
     setTimeout(() => {
-      const u = users.find(u => u.email === email && u.password === pw);
-      u ? onLogin(u) : setError("이메일 또는 비밀번호가 올바르지 않습니다.");
+      const user = USERS.find(u => u.email === email && u.password === password);
+      if (user) {
+        onLogin(user);
+      } else {
+        setError("이메일 또는 비밀번호가 올바르지 않습니다.");
+      }
       setLoading(false);
-    }, 400);
+    }, 600);
   };
 
   return (
-    <div style={S.loginBg}>
-      <div style={{ background: CARD, borderRadius: 24, border: `1px solid ${BORDER}`, padding: 48, width: 420, maxWidth: "90vw", boxShadow: "0 24px 80px rgba(0,0,0,0.5)" }}>
+    <div style={styles.loginBg}>
+      <div style={{ position: "absolute", top: "10%", left: "5%", width: 400, height: 400, background: `radial-gradient(circle, ${LIME}08 0%, transparent 70%)`, borderRadius: "50%" }} />
+      <div style={{ position: "absolute", bottom: "10%", right: "10%", width: 300, height: 300, background: `radial-gradient(circle, ${LIME}05 0%, transparent 70%)`, borderRadius: "50%" }} />
+      
+      <div style={{ background: CARD, borderRadius: 24, border: `1px solid ${BORDER}`, padding: 48, width: 420, maxWidth: "90vw", position: "relative", boxShadow: "0 24px 80px rgba(0,0,0,0.5)" }}>
         <div style={{ textAlign: "center", marginBottom: 40 }}>
           <div style={{ width: 64, height: 64, background: LIME, borderRadius: 16, display: "inline-flex", alignItems: "center", justifyContent: "center", fontWeight: 900, color: DARK, fontSize: 22, marginBottom: 16 }}>FDL</div>
           <h1 style={{ fontSize: 24, fontWeight: 800, color: "#fff", margin: 0 }}>FOOTBALL DATALAB</h1>
           <p style={{ color: TEXT2, fontSize: 14, marginTop: 8 }}>데이터로 구축하는 축구 아카데미의 미래</p>
         </div>
-        <div style={{ marginBottom: 16 }}>
+
+        <div style={{ marginBottom: 20 }}>
           <label style={{ fontSize: 13, color: TEXT2, fontWeight: 500, display: "block", marginBottom: 8 }}>이메일</label>
-          <input style={S.input} type="email" placeholder="이메일" value={email} onChange={e => setEmail(e.target.value)} onKeyDown={e => e.key === "Enter" && handle()} />
+          <input
+            style={styles.input}
+            type="email"
+            placeholder="이메일을 입력하세요"
+            value={email}
+            onChange={e => setEmail(e.target.value)}
+            onKeyDown={e => e.key === "Enter" && handleLogin()}
+          />
         </div>
+
         <div style={{ marginBottom: 28 }}>
           <label style={{ fontSize: 13, color: TEXT2, fontWeight: 500, display: "block", marginBottom: 8 }}>비밀번호</label>
-          <input style={S.input} type="password" placeholder="비밀번호" value={pw} onChange={e => setPw(e.target.value)} onKeyDown={e => e.key === "Enter" && handle()} />
+          <input
+            style={styles.input}
+            type="password"
+            placeholder="비밀번호를 입력하세요"
+            value={password}
+            onChange={e => setPassword(e.target.value)}
+            onKeyDown={e => e.key === "Enter" && handleLogin()}
+          />
         </div>
-        {error && <div style={{ background: `${RED}15`, border: `1px solid ${RED}30`, borderRadius: 10, padding: "10px 14px", marginBottom: 20, color: RED, fontSize: 13 }}>{error}</div>}
-        <button style={{ ...S.btn, width: "100%", padding: 14, fontSize: 15, opacity: loading ? 0.7 : 1 }} onClick={handle} disabled={loading}>{loading ? "로그인 중..." : "로그인"}</button>
+
+        {error && (
+          <div style={{ background: `${RED}15`, border: `1px solid ${RED}30`, borderRadius: 10, padding: "10px 14px", marginBottom: 20, color: RED, fontSize: 13 }}>
+            {error}
+          </div>
+        )}
+
+        <button
+          style={{ ...styles.btn, width: "100%", padding: "14px", fontSize: 15, opacity: loading ? 0.7 : 1 }}
+          onClick={handleLogin}
+          disabled={loading}
+        >
+          {loading ? "로그인 중..." : "로그인"}
+        </button>
+
+        <div style={{ marginTop: 32, padding: 16, background: CARD2, borderRadius: 12, border: `1px solid ${BORDER}` }}>
+          <div style={{ fontSize: 12, color: TEXT2, marginBottom: 8, fontWeight: 600 }}>테스트 계정</div>
+          <div style={{ fontSize: 12, color: TEXT2, lineHeight: 1.8 }}>
+            <span style={{ color: LIME }}>관리자</span> admin@footballdatalab.com / admin123<br/>
+            <span style={{ color: LIME }}>아카데미</span> ksa@academy.com / ksa123
+          </div>
+        </div>
       </div>
     </div>
   );
 }
 
-// ── 대시보드 기본값 ────────────────────────────────────
-const RADAR_CATS = ["순발력", "근력", "지구력", "패스", "드리블", "슈팅", "민첩성"];
+// Dashboard Page
+function DashboardPage({ user, academyId }) {
+  const academy = ACADEMIES.find(a => a.id === academyId);
+  const players = PLAYERS_DATA[academyId] || [];
+  const tests = TESTS.filter(t => t.academy_id === academyId);
+  const latestRound = Math.max(...tests.map(t => t.round));
 
-function defaultDashboard(testTypes = DEFAULT_TEST_TYPES) {
-  const radarData = {};
-  RADAR_CATS.forEach(c => { radarData[c] = 0; });
-  const topPerformers = {};
-  testTypes.forEach(tt => { topPerformers[tt.id] = { name: "", value: "" }; });
-  const rankings = {};
-  testTypes.forEach(tt => { rankings[tt.id] = []; });
-  return {
-    updatedAt: "",
-    stats: { playerCount: "", testCount: "", latestRound: "", year: new Date().getFullYear() },
-    notice: "",
-    topPerformers,
-    radarData,
-    rankings,
-  };
-}
-
-// ── 대시보드 (관리자: 전체 요약 / 팀: 설정된 내용) ─────
-function DashboardPage({ user, academies, resultFiles, dashboards, testTypes }) {
-  const isMobile  = useContext(MobileCtx);
-  const isAdmin   = user.role === "admin";
-  const myAcademy = academies.find(a => a.id === user.academy_id);
-  const db        = isAdmin ? null : (dashboards[user.academy_id] ?? null);
-  const myFiles   = isAdmin ? resultFiles : resultFiles.filter(f => f.academy_id === user.academy_id);
-
-  // Hooks must always be called before any early returns
-  const [selectedRankTest, setSelectedRankTest] = useState(testTypes[0]?.id ?? "");
-  const MEDALS = ["🥇", "🥈", "🥉"];
-
-  // ── 관리자 뷰 ──
-  if (isAdmin) {
-    // 전체 평균 레이더 데이터 계산
-    const configuredDbs = Object.values(dashboards).filter(d => d && d.updatedAt);
-    const avgRadarData = RADAR_CATS.map(cat => {
-      const vals = configuredDbs.map(d => Number(d.radarData?.[cat]) || 0).filter(v => v > 0);
-      return { category: cat, value: vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : 0, fullMark: 100 };
+  // Top performers
+  const getTopPerformer = (testTypeId) => {
+    const tt = TEST_TYPES.find(t => t.id === testTypeId);
+    let best = null;
+    let bestVal = tt.lower_better ? Infinity : -Infinity;
+    players.forEach(p => {
+      const val = p.records[testTypeId]?.[latestRound];
+      if (val !== undefined) {
+        if (tt.lower_better ? val < bestVal : val > bestVal) {
+          bestVal = val;
+          best = p;
+        }
+      }
     });
+    return best ? { name: best.name, value: bestVal, unit: tt.unit } : null;
+  };
 
-    // 팀별 최고 기록 목록
-    const teamTopRecords = academies.map(a => {
-      const d = dashboards[a.id];
-      if (!d || !d.updatedAt) return null;
-      return { academy: a, topPerformers: d.topPerformers };
-    }).filter(Boolean);
-
-    return (
-      <div>
-        <div style={{ marginBottom: 28 }}>
-          <h2 style={{ fontSize: 22, fontWeight: 800, color: "#fff", margin: 0 }}>전체 현황</h2>
-          <p style={{ color: TEXT2, fontSize: 14, marginTop: 4 }}>등록된 팀과 파일 현황을 확인하세요</p>
-        </div>
-        <div style={{ display: "flex", gap: 16, marginBottom: 24, flexWrap: "wrap" }}>
-          <StatCard icon="🏫" label="등록 팀" value={academies.length} sub="활성 팀" />
-          <StatCard icon="📁" label="전체 파일" value={`${resultFiles.length}개`} sub="업로드 완료" color={BLUE} />
-          <StatCard icon="✏️" label="대시보드 설정" value={`${Object.keys(dashboards).length}개`} sub="팀 설정 완료" color={PURPLE} />
-        </div>
-
-        {/* 전체 평균 능력치 */}
-        {configuredDbs.length > 0 && (
-          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 20, marginBottom: 20 }}>
-            <div style={S.card}>
-              <h3 style={{ margin: "0 0 4px", fontSize: 16, fontWeight: 700, color: "#fff" }}>🕸️ 전체 팀 평균 능력치</h3>
-              <p style={{ fontSize: 12, color: TEXT2, margin: "0 0 16px" }}>{configuredDbs.length}개 팀 평균</p>
-              <ResponsiveContainer width="100%" height={240}>
-                <RadarChart data={avgRadarData}>
-                  <PolarGrid stroke={BORDER} />
-                  <PolarAngleAxis dataKey="category" tick={{ fill: TEXT2, fontSize: 12 }} />
-                  <PolarRadiusAxis angle={90} domain={[0, 100]} tick={{ fill: TEXT2, fontSize: 10 }} />
-                  <Radar name="전체 평균" dataKey="value" stroke={LIME} fill={LIME} fillOpacity={0.2} strokeWidth={2} />
-                </RadarChart>
-              </ResponsiveContainer>
-            </div>
-
-            <div style={S.card}>
-              <h3 style={{ margin: "0 0 4px", fontSize: 16, fontWeight: 700, color: "#fff" }}>📊 능력치 평균값</h3>
-              <p style={{ fontSize: 12, color: TEXT2, margin: "0 0 16px" }}>카테고리별 전체 평균</p>
-              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                {avgRadarData.map(d => (
-                  <div key={d.category} style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                    <span style={{ fontSize: 13, color: TEXT, width: 60 }}>{d.category}</span>
-                    <div style={{ flex: 1, background: CARD2, borderRadius: 4, height: 8, overflow: "hidden" }}>
-                      <div style={{ width: `${d.value}%`, height: "100%", background: LIME, borderRadius: 4 }} />
-                    </div>
-                    <span style={{ fontSize: 13, fontWeight: 700, color: LIME, width: 36, textAlign: "right" }}>{d.value}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* 팀별 최고 기록 */}
-        {teamTopRecords.length > 0 && (
-          <div style={S.card}>
-            <h3 style={{ margin: "0 0 16px", fontSize: 16, fontWeight: 700, color: "#fff" }}>🏆 팀별 최고 기록</h3>
-            <div style={{ overflowX: "auto" }}>
-              <table style={S.table}>
-                <thead>
-                  <tr>
-                    <th style={S.th}>팀</th>
-                    {testTypes.map(tt => <th key={tt.id} style={S.th}>{tt.name}</th>)}
-                  </tr>
-                </thead>
-                <tbody>
-                  {teamTopRecords.map(({ academy, topPerformers }) => (
-                    <tr key={academy.id}>
-                      <td style={S.td}><span style={{ color: LIME, fontWeight: 600 }}>{academy.name}</span></td>
-                      {testTypes.map(tt => {
-                        const tp = topPerformers?.[tt.id];
-                        return (
-                          <td key={tt.id} style={S.td}>
-                            {tp?.value ? (
-                              <div>
-                                <div style={{ fontWeight: 700, color: "#fff" }}>{tp.value}{tt.unit}</div>
-                                {tp.name && <div style={{ fontSize: 11, color: TEXT2 }}>{tp.name}</div>}
-                              </div>
-                            ) : <span style={{ color: TEXT2 }}>-</span>}
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
-
-        {/* 최근 업로드 파일 */}
-        {myFiles.length > 0 && (
-          <div style={S.card}>
-            <h3 style={{ margin: "0 0 16px", fontSize: 16, fontWeight: 700, color: "#fff" }}>📁 최근 업로드 파일</h3>
-            <table style={S.table}>
-              <thead><tr>
-                <th style={S.th}>파일명</th><th style={S.th}>팀</th><th style={S.th}>차시</th><th style={S.th}>업로드 일시</th>
-              </tr></thead>
-              <tbody>
-                {[...myFiles].reverse().slice(0, 8).map(f => (
-                  <tr key={f.id}>
-                    <td style={S.td}><span style={{ marginRight: 8 }}>📕</span><span style={{ fontWeight: 500, color: "#fff" }}>{f.file_name}</span></td>
-                    <td style={S.td}><span style={{ color: LIME }}>{academies.find(a => a.id === f.academy_id)?.name}</span></td>
-                    <td style={S.td}>{f.year}년 {f.round}차시</td>
-                    <td style={S.td}>{f.uploaded_at}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-    );
+  // Team averages by round
+  const teamAvgData = [];
+  for (let r = 1; r <= 3; r++) {
+    const entry = { round: `${r}차시` };
+    TEST_TYPES.forEach(tt => {
+      const vals = players.map(p => p.records[tt.id]?.[r]).filter(v => v !== undefined);
+      entry[tt.name] = vals.length ? Math.round((vals.reduce((a,b) => a+b, 0) / vals.length) * 100) / 100 : 0;
+    });
+    teamAvgData.push(entry);
   }
 
-  // ── 팀 뷰: 대시보드 미설정 ──
-  if (!db || !db.updatedAt) {
-    return (
-      <div>
-        <div style={{ marginBottom: 28 }}>
-          <h2 style={{ fontSize: 22, fontWeight: 800, color: "#fff", margin: 0 }}>{myAcademy?.name} 대시보드</h2>
-        </div>
-        <div style={{ ...S.card, textAlign: "center", padding: 80 }}>
-          <div style={{ fontSize: 64, marginBottom: 16 }}>📊</div>
-          <div style={{ fontSize: 18, fontWeight: 700, color: "#fff", marginBottom: 8 }}>대시보드가 아직 준비되지 않았습니다</div>
-          <div style={{ fontSize: 14, color: TEXT2 }}>관리자가 데이터를 입력하면 여기에 표시됩니다</div>
-        </div>
-      </div>
-    );
-  }
+  // Radar data for latest round
+  const radarData = TEST_TYPES.map(tt => {
+    const vals = players.map(p => p.records[tt.id]?.[latestRound]).filter(v => v !== undefined);
+    const avg = vals.length ? vals.reduce((a,b) => a+b, 0) / vals.length : 0;
+    let normalized;
+    switch(tt.id) {
+      case "sprint_20m": normalized = Math.max(0, 100 - (avg - 3.0) * 40); break;
+      case "jump": normalized = Math.min(100, (avg / 65) * 100); break;
+      case "yoyo": normalized = Math.min(100, (avg / 40) * 100); break;
+      case "pass": normalized = Math.min(100, (avg / 25) * 100); break;
+      case "dribble": normalized = Math.max(0, 100 - (avg - 10) * 20); break;
+      case "shooting": normalized = Math.min(100, (avg / 100) * 100); break;
+      case "agility": normalized = Math.max(0, 100 - (avg - 8) * 20); break;
+      default: normalized = 50;
+    }
+    return { category: tt.category, value: Math.round(normalized), fullMark: 100 };
+  });
 
-  // ── 팀 뷰: 설정된 대시보드 표시 ──
-  const { stats, notice, topPerformers, radarData, rankings } = db;
-  const radarChartData = RADAR_CATS.map(c => ({ category: c, value: Number(radarData[c]) || 0, fullMark: 100 }));
-  const rankList = (rankings[selectedRankTest] ?? []).slice(0, 3);
-  const currentTT = testTypes.find(t => t.id === selectedRankTest);
+  // Distribution data for sprint
+  const sprintDist = [];
+  const ranges = [
+    { label: "~3.0", min: 0, max: 3.0 },
+    { label: "3.0~3.5", min: 3.0, max: 3.5 },
+    { label: "3.5~4.0", min: 3.5, max: 4.0 },
+    { label: "4.0~4.5", min: 4.0, max: 4.5 },
+    { label: "4.5~", min: 4.5, max: 99 },
+  ];
+  ranges.forEach(r => {
+    const count = players.filter(p => {
+      const v = p.records.sprint_20m?.[latestRound];
+      return v !== undefined && v >= r.min && v < r.max;
+    }).length;
+    sprintDist.push({ range: r.label, count });
+  });
+
+  const isAdmin = user.role === "admin";
+  const totalPlayers = isAdmin ? ACADEMIES.reduce((s,a) => s + a.players, 0) : players.length;
+  const totalTests = isAdmin ? TESTS.length : tests.length;
+  const totalAcademies = isAdmin ? ACADEMIES.length : 1;
+
+  const CHART_COLORS = [LIME, BLUE, PURPLE, ORANGE, "#FF6B6B", "#4ECDC4", "#FFE66D"];
 
   return (
     <div>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: isMobile ? 16 : 28 }}>
-        <div>
-          <h2 style={{ fontSize: isMobile ? 17 : 22, fontWeight: 800, color: "#fff", margin: 0 }}>{myAcademy?.name} 대시보드</h2>
-          <p style={{ color: TEXT2, fontSize: 11, marginTop: 2 }}>업데이트: {db.updatedAt}</p>
+      <div style={{ marginBottom: 28 }}>
+        <h2 style={{ fontSize: 22, fontWeight: 800, color: "#fff", margin: 0 }}>
+          {isAdmin ? "전체 대시보드" : `${academy?.name} 대시보드`}
+        </h2>
+        <p style={{ color: TEXT2, fontSize: 14, marginTop: 4 }}>
+          {isAdmin ? "풋볼데이터랩 전체 현황을 확인하세요" : "아카데미 데이터 현황을 확인하세요"}
+        </p>
+      </div>
+
+      {/* Stats */}
+      <div style={{ display: "flex", gap: 16, marginBottom: 24, flexWrap: "wrap" }}>
+        <StatCard icon="🏟️" label="등록 아카데미" value={totalAcademies} sub={isAdmin ? "활성 계약" : academy?.location} />
+        <StatCard icon="👥" label="등록 선수" value={`${totalPlayers}명`} sub={isAdmin ? "전체 선수" : "소속 선수"} />
+        <StatCard icon="📋" label="테스트 수" value={`${totalTests}회`} sub="완료된 테스트" color={BLUE} />
+        <StatCard icon="📊" label="최근 차시" value={`${latestRound}차시`} sub="2025년 기준" color={PURPLE} />
+      </div>
+
+      {/* Top Performers */}
+      <div style={{ ...styles.card, padding: 0, overflow: "hidden", marginBottom: 20 }}>
+        <div style={{ padding: "20px 24px", borderBottom: `1px solid ${BORDER}`, background: "linear-gradient(90deg, #1a1a00 0%, #141414 100%)" }}>
+          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "#fff", display: "flex", alignItems: "center", gap: 8 }}>
+            🏆 테스트별 최고 기록 선수
+            <span style={{ fontSize: 12, color: TEXT2, fontWeight: 400 }}>({latestRound}차시 기준)</span>
+          </h3>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 0 }}>
+          {TEST_TYPES.map((tt, i) => {
+            const top = getTopPerformer(tt.id);
+            return (
+              <div key={tt.id} style={{
+                padding: "22px 20px",
+                borderRight: i % 4 !== 3 ? `1px solid ${BORDER}` : "none",
+                borderBottom: `1px solid ${BORDER}`,
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                textAlign: "center",
+                gap: 6,
+                background: CARD,
+                transition: "background 0.2s",
+              }}>
+                {/* Icon Circle */}
+                <div style={{
+                  width: 52,
+                  height: 52,
+                  borderRadius: "50%",
+                  background: `${LIME}18`,
+                  border: `2px solid ${LIME}40`,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: 26,
+                  marginBottom: 4,
+                }}>
+                  {tt.icon}
+                </div>
+                {/* Category */}
+                <div style={{ fontSize: 11, color: LIME, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase" }}>{tt.category}</div>
+                {/* Test Name */}
+                <div style={{ fontSize: 13, fontWeight: 600, color: TEXT2, marginBottom: 4 }}>{tt.name}</div>
+                {top ? (
+                  <>
+                    {/* Record Value */}
+                    <div style={{ fontSize: 28, fontWeight: 900, color: "#fff", lineHeight: 1 }}>
+                      {top.value}
+                      <span style={{ fontSize: 13, fontWeight: 500, color: TEXT2, marginLeft: 3 }}>{top.unit}</span>
+                    </div>
+                    {/* Medal + Name */}
+                    <div style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6,
+                      marginTop: 6,
+                      background: "#2a2200",
+                      border: "1px solid #FFD70040",
+                      borderRadius: 20,
+                      padding: "4px 12px",
+                    }}>
+                      <span style={{ fontSize: 16 }}>🥇</span>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: "#FFD700" }}>{top.name}</span>
+                    </div>
+                  </>
+                ) : (
+                  <div style={{ fontSize: 13, color: TEXT2, marginTop: 8 }}>데이터 없음</div>
+                )}
+              </div>
+            );
+          })}
         </div>
       </div>
 
-      {/* 공지 */}
-      {notice && (
-        <div style={{ background: `${LIME}08`, border: `1px solid ${LIME}30`, borderRadius: 12, padding: "14px 20px", marginBottom: 24, fontSize: 14, color: TEXT, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
-          📢 {notice}
-        </div>
-      )}
-
-      {/* 요약 수치 */}
-      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(4, 1fr)", gap: 12, marginBottom: 20 }}>
-        <StatCard icon="👥" label="등록 선수" value={stats.playerCount || "-"} sub={`${stats.year || ""}년 기준`} />
-        <StatCard icon="📋" label="완료 테스트" value={stats.testCount || "-"} sub="누적 테스트" color={BLUE} />
-        <StatCard icon="📊" label="최근 차시" value={stats.latestRound ? `${stats.latestRound}차시` : "-"} sub="최신 기록" color={PURPLE} />
-        <StatCard icon="📁" label="결과 파일" value={`${myFiles.length}개`} sub="다운로드 가능" color={ORANGE} />
-      </div>
-
-      {/* 능력치 + 최고기록 */}
-      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 20, marginBottom: 20 }}>
-        <div style={S.card}>
+      {/* Charts Row */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginBottom: 20 }}>
+        {/* Radar Chart */}
+        <div style={styles.card}>
           <h3 style={{ margin: "0 0 20px", fontSize: 16, fontWeight: 700, color: "#fff" }}>🕸️ 팀 능력치 분석</h3>
-          <ResponsiveContainer width="100%" height={260}>
-            <RadarChart data={radarChartData}>
+          <ResponsiveContainer width="100%" height={300}>
+            <RadarChart data={radarData}>
               <PolarGrid stroke={BORDER} />
               <PolarAngleAxis dataKey="category" tick={{ fill: TEXT2, fontSize: 12 }} />
               <PolarRadiusAxis angle={90} domain={[0, 100]} tick={{ fill: TEXT2, fontSize: 10 }} />
@@ -482,1168 +481,757 @@ function DashboardPage({ user, academies, resultFiles, dashboards, testTypes }) 
           </ResponsiveContainer>
         </div>
 
-        <div style={S.card}>
-          <h3 style={{ margin: "0 0 16px", fontSize: 16, fontWeight: 700, color: "#fff" }}>🏆 테스트별 최고 기록</h3>
-          {/* 헤더 */}
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, padding: "6px 14px", marginBottom: 4 }}>
-            <span style={{ fontSize: 11, color: TEXT2, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5 }}>종목</span>
-            <span style={{ fontSize: 11, color: TEXT2, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5 }}>선수</span>
-            <span style={{ fontSize: 11, color: TEXT2, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, textAlign: "right" }}>기록</span>
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            {testTypes.map(tt => {
-              const tp = topPerformers[tt.id];
-              const hasData = tp?.name || tp?.value;
-              return (
-                <div key={tt.id} style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr auto" : "1fr 1fr 1fr", gap: 8, alignItems: "center", padding: "8px 12px", background: CARD2, borderRadius: 8 }}>
-                  {isMobile ? (
-                    <>
-                      <div>
-                        <div style={{ fontSize: 11, color: TEXT2, marginBottom: 2 }}>{tt.name}</div>
-                        <div style={{ fontSize: 13, color: TEXT, fontWeight: 500 }}>{tp?.name || <span style={{ color: TEXT2 }}>-</span>}</div>
-                      </div>
-                      <span style={{ fontSize: 14, color: hasData ? LIME : TEXT2, fontWeight: 700, textAlign: "right" }}>
-                        {tp?.value ? `${tp.value}${tt.unit}` : "-"}
-                      </span>
-                    </>
-                  ) : (
-                    <>
-                      <span style={{ fontSize: 13, color: hasData ? TEXT : TEXT2 }}>{tt.name}</span>
-                      <span style={{ fontSize: 13, color: TEXT, fontWeight: 500 }}>{tp?.name || <span style={{ color: TEXT2 }}>-</span>}</span>
-                      <span style={{ fontSize: 13, color: hasData ? LIME : TEXT2, fontWeight: 700, textAlign: "right" }}>
-                        {tp?.value ? `${tp.value}${tt.unit}` : "-"}
-                      </span>
-                    </>
-                  )}
-                </div>
-              );
-            })}
-          </div>
+        {/* Sprint Distribution */}
+        <div style={styles.card}>
+          <h3 style={{ margin: "0 0 20px", fontSize: 16, fontWeight: 700, color: "#fff" }}>📊 20M 스프린트 기록 분포</h3>
+          <ResponsiveContainer width="100%" height={300}>
+            <BarChart data={sprintDist}>
+              <CartesianGrid strokeDasharray="3 3" stroke={BORDER} />
+              <XAxis dataKey="range" tick={{ fill: TEXT2, fontSize: 12 }} axisLine={{ stroke: BORDER }} />
+              <YAxis tick={{ fill: TEXT2, fontSize: 12 }} axisLine={{ stroke: BORDER }} />
+              <Tooltip contentStyle={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 8, color: TEXT }} />
+              <Bar dataKey="count" name="선수 수" radius={[6, 6, 0, 0]}>
+                {sprintDist.map((_, i) => (
+                  <Cell key={i} fill={i === 1 ? LIME : `${LIME}60`} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
         </div>
       </div>
 
-      {/* 선수 랭킹 - TOP 3 */}
-      <div style={S.card}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20, flexWrap: "wrap", gap: 10 }}>
-          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "#fff" }}>🏅 선수 랭킹 TOP 3</h3>
-          <select style={{ ...S.select, fontSize: isMobile ? 12 : 14, maxWidth: isMobile ? 140 : "none" }} value={selectedRankTest} onChange={e => setSelectedRankTest(e.target.value)}>
-            {testTypes.map(tt => <option key={tt.id} value={tt.id}>{tt.name}</option>)}
-          </select>
+      {/* Team Average Trend */}
+      <div style={styles.card}>
+        <h3 style={{ margin: "0 0 20px", fontSize: 16, fontWeight: 700, color: "#fff" }}>📈 차시별 팀 평균 추이</h3>
+        <ResponsiveContainer width="100%" height={320}>
+          <LineChart data={teamAvgData}>
+            <CartesianGrid strokeDasharray="3 3" stroke={BORDER} />
+            <XAxis dataKey="round" tick={{ fill: TEXT2, fontSize: 12 }} axisLine={{ stroke: BORDER }} />
+            <YAxis tick={{ fill: TEXT2, fontSize: 12 }} axisLine={{ stroke: BORDER }} />
+            <Tooltip contentStyle={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 8, color: TEXT }} />
+            <Legend wrapperStyle={{ fontSize: 12, color: TEXT2 }} />
+            {TEST_TYPES.slice(0, 5).map((tt, i) => (
+              <Line key={tt.id} type="monotone" dataKey={tt.name} stroke={CHART_COLORS[i]} strokeWidth={2} dot={{ fill: CHART_COLORS[i], r: 4 }} />
+            ))}
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+
+      {/* Recent Tests */}
+      {isAdmin && (
+        <div style={styles.card}>
+          <h3 style={{ margin: "0 0 16px", fontSize: 16, fontWeight: 700, color: "#fff" }}>📋 최근 테스트 현황</h3>
+          <table style={styles.table}>
+            <thead>
+              <tr>
+                <th style={styles.th}>아카데미</th>
+                <th style={styles.th}>연도</th>
+                <th style={styles.th}>차시</th>
+                <th style={styles.th}>날짜</th>
+                <th style={styles.th}>상태</th>
+              </tr>
+            </thead>
+            <tbody>
+              {TESTS.slice(-8).reverse().map(t => {
+                const ac = ACADEMIES.find(a => a.id === t.academy_id);
+                return (
+                  <tr key={t.id}>
+                    <td style={styles.td}><span style={{ fontWeight: 600, color: "#fff" }}>{ac?.name}</span></td>
+                    <td style={styles.td}>{t.year}</td>
+                    <td style={styles.td}>{t.round}차시</td>
+                    <td style={styles.td}>{t.date}</td>
+                    <td style={styles.td}><span style={{ ...styles.badge, background: `${LIME}20`, color: LIME }}>완료</span></td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
-        {rankList.length === 0 ? (
-          <div style={{ textAlign: "center", padding: 32, color: TEXT2, fontSize: 13 }}>데이터가 없습니다</div>
-        ) : (
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: isMobile ? 8 : 16 }}>
-            {rankList.map((r, i) => {
-              const prevVal = i > 0 ? parseFloat(rankList[i - 1].value) : null;
-              const curVal  = parseFloat(r.value);
-              let gap = null;
-              if (i > 0 && !isNaN(prevVal) && !isNaN(curVal)) {
-                const diff = currentTT?.lower_better ? (curVal - prevVal) : (prevVal - curVal);
-                gap = `+${Math.abs(diff).toFixed(2)}`;
-              }
-              const medalColors = ["#FFD700", "#C0C0C0", "#CD7F32"];
-              return (
-                <div key={i} style={{ background: CARD2, borderRadius: isMobile ? 10 : 14, padding: isMobile ? "12px 10px" : "20px 24px", border: `1px solid ${i === 0 ? "#FFD70040" : BORDER}`, textAlign: isMobile ? "center" : "left" }}>
-                  <div style={{ fontSize: isMobile ? 24 : 36, marginBottom: isMobile ? 4 : 8 }}>{MEDALS[i]}</div>
-                  <div style={{ fontSize: isMobile ? 13 : 20, fontWeight: 800, color: "#fff", marginBottom: 2, wordBreak: "break-all" }}>{r.name || "-"}</div>
-                  {r.age && !isMobile && <div style={{ fontSize: 12, color: TEXT2, marginBottom: 8 }}>{r.age}세</div>}
-                  <div style={{ fontSize: isMobile ? 16 : 24, fontWeight: 900, color: medalColors[i], marginBottom: 2 }}>
-                    {r.value}{currentTT?.unit}
-                  </div>
-                  {gap && !isMobile && <div style={{ fontSize: 12, color: TEXT2 }}>▲ {gap} 차이</div>}
-                </div>
-              );
-            })}
-          </div>
-        )}
+      )}
+    </div>
+  );
+}
+
+// Rankings Page
+function RankingsPage({ academyId }) {
+  const [selectedTest, setSelectedTest] = useState("sprint_20m");
+  const [selectedRound, setSelectedRound] = useState(3);
+  const tt = TEST_TYPES.find(t => t.id === selectedTest);
+  const players = PLAYERS_DATA[academyId] || [];
+
+  const ranked = players
+    .map(p => ({ ...p, value: p.records[selectedTest]?.[selectedRound] }))
+    .filter(p => p.value !== undefined)
+    .sort((a, b) => tt.lower_better ? a.value - b.value : b.value - a.value);
+
+  // Growth data for top player
+  const topPlayer = ranked[0];
+  const growthData = topPlayer ? [1,2,3].map(r => ({
+    round: `${r}차시`,
+    value: topPlayer.records[selectedTest]?.[r] || 0
+  })) : [];
+
+  return (
+    <div>
+      <div style={{ marginBottom: 28 }}>
+        <h2 style={{ fontSize: 22, fontWeight: 800, color: "#fff", margin: 0 }}>🏅 선수 랭킹</h2>
+        <p style={{ color: TEXT2, fontSize: 14, marginTop: 4 }}>테스트별 선수 순위를 확인하세요</p>
+      </div>
+
+      <div style={{ display: "flex", gap: 12, marginBottom: 24, flexWrap: "wrap" }}>
+        <select style={styles.select} value={selectedTest} onChange={e => setSelectedTest(e.target.value)}>
+          {TEST_TYPES.map(t => <option key={t.id} value={t.id}>{t.icon} {t.name}</option>)}
+        </select>
+        <select style={styles.select} value={selectedRound} onChange={e => setSelectedRound(Number(e.target.value))}>
+          {[1,2,3].map(r => <option key={r} value={r}>{r}차시</option>)}
+        </select>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 20 }}>
+        {/* Ranking Table */}
+        <div style={styles.card}>
+          <h3 style={{ margin: "0 0 16px", fontSize: 16, fontWeight: 700, color: "#fff" }}>
+            {tt.icon} {tt.name} 랭킹 ({selectedRound}차시)
+          </h3>
+          <table style={styles.table}>
+            <thead>
+              <tr>
+                <th style={{...styles.th, width: 50}}>순위</th>
+                <th style={styles.th}>선수</th>
+                <th style={styles.th}>나이</th>
+                <th style={styles.th}>포지션</th>
+                <th style={{...styles.th, textAlign: "right"}}>기록</th>
+                <th style={{...styles.th, textAlign: "right"}}>변화</th>
+              </tr>
+            </thead>
+            <tbody>
+              {ranked.slice(0, 20).map((p, i) => {
+                const prevVal = p.records[selectedTest]?.[selectedRound - 1];
+                const change = prevVal ? Math.round((p.value - prevVal) * 100) / 100 : 0;
+                return (
+                  <tr key={i} style={{ background: i < 3 ? `${LIME}05` : "transparent" }}>
+                    <td style={styles.td}><RankBadge rank={i + 1} /></td>
+                    <td style={styles.td}><span style={{ fontWeight: 600, color: "#fff" }}>{p.name}</span></td>
+                    <td style={styles.td}>{p.age}세</td>
+                    <td style={styles.td}>
+                      <span style={{ ...styles.badge, background: p.position === "FW" ? `${RED}20` : p.position === "MF" ? `${BLUE}20` : p.position === "DF" ? `${LIME}20` : `${PURPLE}20`, color: p.position === "FW" ? RED : p.position === "MF" ? BLUE : p.position === "DF" ? LIME : PURPLE }}>
+                        {p.position}
+                      </span>
+                    </td>
+                    <td style={{ ...styles.td, textAlign: "right", fontWeight: 700, color: i === 0 ? LIME : "#fff", fontSize: i === 0 ? 16 : 14 }}>
+                      {p.value}{tt.unit}
+                    </td>
+                    <td style={{ ...styles.td, textAlign: "right" }}>
+                      <ChangeIndicator value={change} unit={tt.unit} lowerBetter={tt.lower_better} />
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Side Panel */}
+        <div>
+          {/* Top Player Card */}
+          {topPlayer && (
+            <div style={{ ...styles.card, background: `linear-gradient(135deg, ${CARD} 0%, ${LIME}08 100%)`, border: `1px solid ${LIME}30` }}>
+              <div style={{ textAlign: "center" }}>
+                <div style={{ width: 64, height: 64, borderRadius: "50%", background: `${LIME}20`, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 28, marginBottom: 12 }}>🥇</div>
+                <div style={{ fontSize: 20, fontWeight: 800, color: "#fff" }}>{topPlayer.name}</div>
+                <div style={{ fontSize: 13, color: TEXT2, marginTop: 4 }}>{topPlayer.age}세 · {topPlayer.position}</div>
+                <div style={{ fontSize: 36, fontWeight: 900, color: LIME, marginTop: 16 }}>{topPlayer.value}<span style={{ fontSize: 16, fontWeight: 500 }}>{tt.unit}</span></div>
+                <div style={{ fontSize: 12, color: TEXT2, marginTop: 4 }}>{tt.name} 1위</div>
+              </div>
+            </div>
+          )}
+
+          {/* Growth Chart */}
+          {topPlayer && (
+            <div style={styles.card}>
+              <h3 style={{ margin: "0 0 16px", fontSize: 14, fontWeight: 700, color: "#fff" }}>📈 {topPlayer.name} 성장 추이</h3>
+              <ResponsiveContainer width="100%" height={180}>
+                <LineChart data={growthData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke={BORDER} />
+                  <XAxis dataKey="round" tick={{ fill: TEXT2, fontSize: 11 }} axisLine={{ stroke: BORDER }} />
+                  <YAxis tick={{ fill: TEXT2, fontSize: 11 }} axisLine={{ stroke: BORDER }} domain={["auto", "auto"]} />
+                  <Tooltip contentStyle={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 8, color: TEXT }} />
+                  <Line type="monotone" dataKey="value" stroke={LIME} strokeWidth={3} dot={{ fill: LIME, r: 5 }} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
 }
 
-// ── 팀 관리 (관리자) ───────────────────────────────────
-function TeamsPage({ meta, onMetaChange }) {
-  const isMobile  = useContext(MobileCtx);
-  const [showForm,   setShowForm]   = useState(false);
-  const [teamName,   setTeamName]   = useState("");
-  const [teamEmail,  setTeamEmail]  = useState("");
-  const [teamPw,     setTeamPw]     = useState("fdl1234");
-  const [copied,     setCopied]     = useState(null);
-  const [editingId,  setEditingId]  = useState(null);
-  const [editFields, setEditFields] = useState({ name: "", email: "", password: "" });
+// Results Download Page
+function ResultsPage({ user, academyId }) {
+  const [selectedYear, setSelectedYear] = useState(2025);
+  const [selectedRound, setSelectedRound] = useState(null);
+  const [downloadingId, setDownloadingId] = useState(null);
 
-  const handleAdd = () => {
-    if (!teamName.trim() || !teamEmail.trim()) return;
-    const newId = Date.now();
-    const newAcademy = { id: newId, name: teamName.trim(), created_at: new Date().toISOString().split("T")[0] };
-    const newUser    = { id: newId + 1, email: teamEmail.trim(), password: teamPw, role: "academy", academy_id: newId, name: teamName.trim() };
-    onMetaChange(prev => ({
-      ...prev,
-      academies: [...prev.academies, newAcademy],
-      users:     [...prev.users, newUser],
-    }));
-    setTeamName(""); setTeamEmail(""); setTeamPw("fdl1234"); setShowForm(false);
-  };
+  const tests = TESTS.filter(t => t.academy_id === academyId && t.year === selectedYear);
+  const rounds = [...new Set(tests.map(t => t.round))].sort();
 
-  const handleDelete = (academyId) => {
-    if (!confirm("이 팀과 관련 파일 정보를 삭제하시겠습니까?")) return;
-    onMetaChange(prev => ({
-      ...prev,
-      academies:   prev.academies.filter(a => a.id !== academyId),
-      users:       prev.users.filter(u => u.academy_id !== academyId),
-      resultFiles: prev.resultFiles.filter(f => f.academy_id !== academyId),
-    }));
-  };
+  const filteredFiles = RESULT_FILES.filter(f => {
+    if (f.academy_id !== academyId) return false;
+    if (selectedRound) {
+      const test = TESTS.find(t => t.id === f.test_id);
+      return test && test.round === selectedRound && test.year === selectedYear;
+    }
+    return true;
+  });
 
-  const copyText = (text, key) => {
-    navigator.clipboard.writeText(text);
-    setCopied(key);
-    setTimeout(() => setCopied(null), 1500);
-  };
-
-  const startEdit = (a) => {
-    const user = meta.users.find(u => u.academy_id === a.id);
-    setEditingId(a.id);
-    setEditFields({ name: a.name, email: user?.email ?? "", password: user?.password ?? "" });
-  };
-
-  const handleSaveEdit = (academyId) => {
-    if (!editFields.name.trim() || !editFields.email.trim()) return;
-    onMetaChange(prev => ({
-      ...prev,
-      academies: prev.academies.map(a => a.id === academyId ? { ...a, name: editFields.name.trim() } : a),
-      users: prev.users.map(u => u.academy_id === academyId ? { ...u, name: editFields.name.trim(), email: editFields.email.trim(), password: editFields.password } : u),
-    }));
-    setEditingId(null);
+  const handleDownload = (file) => {
+    setDownloadingId(file.id);
+    setTimeout(() => {
+      setDownloadingId(null);
+      alert(`"${file.file_name}" 다운로드가 시작되었습니다.\n(데모에서는 실제 파일이 다운로드되지 않습니다)`);
+    }, 800);
   };
 
   return (
     <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 28 }}>
-        <div>
-          <h2 style={{ fontSize: 22, fontWeight: 800, color: "#fff", margin: 0 }}>🏫 팀 관리</h2>
-          <p style={{ color: TEXT2, fontSize: 14, marginTop: 4 }}>팀을 추가하고 로그인 계정을 관리하세요</p>
-        </div>
-        <button style={S.btn} onClick={() => setShowForm(!showForm)}>
-          {showForm ? "✕ 닫기" : "＋ 팀 추가"}
-        </button>
+      <div style={{ marginBottom: 28 }}>
+        <h2 style={{ fontSize: 22, fontWeight: 800, color: "#fff", margin: 0 }}>📁 결과지 다운로드</h2>
+        <p style={{ color: TEXT2, fontSize: 14, marginTop: 4 }}>테스트 결과 리포트를 다운로드하세요</p>
       </div>
 
-      {showForm && (
-        <div style={{ ...S.card, border: `1px solid ${LIME}30`, background: `${LIME}04`, marginBottom: 24 }}>
-          <h3 style={{ margin: "0 0 20px", fontSize: 16, fontWeight: 700, color: "#fff" }}>새 팀 등록</h3>
-          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: 16, marginBottom: 20 }}>
-            <div>
-              <label style={{ fontSize: 13, color: TEXT2, display: "block", marginBottom: 8 }}>팀 이름 *</label>
-              <input style={S.input} placeholder="예: KSA 축구 아카데미" value={teamName} onChange={e => setTeamName(e.target.value)} />
-            </div>
-            <div>
-              <label style={{ fontSize: 13, color: TEXT2, display: "block", marginBottom: 8 }}>로그인 이메일 *</label>
-              <input style={S.input} type="email" placeholder="예: ksa@academy.com" value={teamEmail} onChange={e => setTeamEmail(e.target.value)} />
-            </div>
-            <div>
-              <label style={{ fontSize: 13, color: TEXT2, display: "block", marginBottom: 8 }}>비밀번호</label>
-              <input style={S.input} placeholder="기본: fdl1234" value={teamPw} onChange={e => setTeamPw(e.target.value)} />
-            </div>
-          </div>
-          <div style={{ display: "flex", gap: 12 }}>
-            <button style={S.btn} onClick={handleAdd} disabled={!teamName.trim() || !teamEmail.trim()}>등록하기</button>
-            <button style={S.btnGhost} onClick={() => setShowForm(false)}>취소</button>
-          </div>
-        </div>
-      )}
+      <div style={{ display: "flex", gap: 12, marginBottom: 24 }}>
+        <select style={styles.select} value={selectedYear} onChange={e => setSelectedYear(Number(e.target.value))}>
+          <option value={2025}>2025년</option>
+        </select>
+        <select style={styles.select} value={selectedRound || ""} onChange={e => setSelectedRound(e.target.value ? Number(e.target.value) : null)}>
+          <option value="">전체 차시</option>
+          {rounds.map(r => <option key={r} value={r}>{r}차시</option>)}
+        </select>
+      </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fill, minmax(360px, 1fr))", gap: 16 }}>
-        {meta.academies.map(a => {
-          const user    = meta.users.find(u => u.academy_id === a.id);
-          const fCount  = meta.resultFiles.filter(f => f.academy_id === a.id).length;
-          const isEditing = editingId === a.id;
+      {/* Round cards */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 16, marginBottom: 28 }}>
+        {rounds.map(r => {
+          const test = tests.find(t => t.round === r);
+          const fileCount = RESULT_FILES.filter(f => f.test_id === test?.id).length;
+          const isSelected = selectedRound === r;
           return (
-            <div key={a.id} style={{ ...S.card, marginBottom: 0 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
-                <div>
-                  <div style={{ fontSize: 18, fontWeight: 700, color: "#fff", marginBottom: 4 }}>{a.name}</div>
-                  <div style={{ fontSize: 12, color: TEXT2 }}>생성일: {a.created_at}</div>
-                </div>
-                <div style={{ display: "flex", gap: 8 }}>
-                  <span style={{ ...S.badge, background: `${LIME}20`, color: LIME }}>활성</span>
-                  <button style={S.btnGhost} onClick={() => isEditing ? setEditingId(null) : startEdit(a)}>
-                    {isEditing ? "취소" : "수정"}
-                  </button>
-                  {a.id !== 1 && (
-                    <button style={S.btnDanger} onClick={() => handleDelete(a.id)}>삭제</button>
-                  )}
-                </div>
-              </div>
-
-              {isEditing ? (
-                <div style={{ background: CARD2, borderRadius: 10, padding: 14, marginBottom: 16 }}>
-                  <div style={{ fontSize: 12, color: TEXT2, fontWeight: 600, marginBottom: 12 }}>정보 수정</div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                    <div>
-                      <label style={{ fontSize: 12, color: TEXT2, display: "block", marginBottom: 4 }}>팀 이름</label>
-                      <input style={{ ...S.input, fontSize: 13 }} value={editFields.name} onChange={e => setEditFields(p => ({ ...p, name: e.target.value }))} />
-                    </div>
-                    <div>
-                      <label style={{ fontSize: 12, color: TEXT2, display: "block", marginBottom: 4 }}>이메일</label>
-                      <input style={{ ...S.input, fontSize: 13 }} type="email" value={editFields.email} onChange={e => setEditFields(p => ({ ...p, email: e.target.value }))} />
-                    </div>
-                    <div>
-                      <label style={{ fontSize: 12, color: TEXT2, display: "block", marginBottom: 4 }}>비밀번호</label>
-                      <input style={{ ...S.input, fontSize: 13 }} value={editFields.password} onChange={e => setEditFields(p => ({ ...p, password: e.target.value }))} />
-                    </div>
-                    <button style={{ ...S.btn, marginTop: 4 }} onClick={() => handleSaveEdit(a.id)} disabled={!editFields.name.trim() || !editFields.email.trim()}>저장하기</button>
-                  </div>
-                </div>
-              ) : (
-                <div style={{ background: CARD2, borderRadius: 10, padding: 14, marginBottom: 16 }}>
-                  <div style={{ fontSize: 12, color: TEXT2, fontWeight: 600, marginBottom: 10 }}>로그인 정보</div>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                    <span style={{ fontSize: 13, color: TEXT }}>{user?.email ?? "-"}</span>
-                    <button style={{ ...S.btnGhost, fontSize: 12, padding: "4px 10px", color: copied === `e${a.id}` ? LIME : TEXT2 }} onClick={() => copyText(user?.email ?? "", `e${a.id}`)}>
-                      {copied === `e${a.id}` ? "✓ 복사됨" : "복사"}
-                    </button>
-                  </div>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <span style={{ fontSize: 13, color: TEXT }}>{"•".repeat(user?.password?.length ?? 0)}</span>
-                    <button style={{ ...S.btnGhost, fontSize: 12, padding: "4px 10px", color: copied === `p${a.id}` ? LIME : TEXT2 }} onClick={() => copyText(user?.password ?? "", `p${a.id}`)}>
-                      {copied === `p${a.id}` ? "✓ 복사됨" : "PW 복사"}
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              <div style={{ display: "flex", gap: 24, paddingTop: 12, borderTop: `1px solid ${BORDER}` }}>
-                <div>
-                  <div style={{ fontSize: 22, fontWeight: 800, color: "#fff" }}>{fCount}</div>
-                  <div style={{ fontSize: 12, color: TEXT2 }}>업로드된 파일</div>
-                </div>
-              </div>
+            <div
+              key={r}
+              onClick={() => setSelectedRound(isSelected ? null : r)}
+              style={{
+                ...styles.card,
+                cursor: "pointer",
+                marginBottom: 0,
+                border: `1px solid ${isSelected ? LIME : BORDER}`,
+                background: isSelected ? `${LIME}08` : CARD,
+                transition: "all 0.15s ease",
+              }}
+            >
+              <div style={{ fontSize: 32, fontWeight: 900, color: isSelected ? LIME : "#fff" }}>{r}차시</div>
+              <div style={{ fontSize: 13, color: TEXT2, marginTop: 8 }}>{test?.date}</div>
+              <div style={{ fontSize: 13, color: isSelected ? LIME : TEXT2, marginTop: 4 }}>📄 {fileCount}개 파일</div>
             </div>
           );
         })}
       </div>
-    </div>
-  );
-}
 
-// ── 파일 업로드 (관리자) ──────────────────────────────
-function UploadPage({ meta, onUpload, onDeleteFile }) {
-  const isMobile  = useContext(MobileCtx);
-  const [academyId,  setAcademyId]  = useState(meta.academies[0]?.id ?? 1);
-  const [round,      setRound]      = useState(1);
-  const [year,       setYear]       = useState(new Date().getFullYear());
-  const [date,       setDate]       = useState(new Date().toISOString().split("T")[0]);
-  const [dragging,   setDragging]   = useState(false);
-  const [uploading,  setUploading]  = useState(false);
-  const [deleting,   setDeleting]   = useState(null);
-  const [success,    setSuccess]    = useState("");
-  const [error,      setError]      = useState("");
-  const fileRef = useRef();
-
-  const handleDelete = async (f) => {
-    if (!confirm(`"${f.file_name}" 파일을 삭제하시겠습니까?`)) return;
-    setDeleting(f.id);
-    await cloudDeleteFile(f.binIds ?? f.binId);
-    onDeleteFile(f.id);
-    setDeleting(null);
-  };
-
-  const handleFiles = async (files) => {
-    const ALLOWED_EXT = [".pdf", ".jpg", ".jpeg", ".png", ".zip", ".7z", ".rar"];
-    const allowed = [...files].filter(f => ALLOWED_EXT.some(ext => f.name.toLowerCase().endsWith(ext)));
-    if (!allowed.length) { setError("PDF, JPG, PNG, ZIP, 7Z, RAR 파일만 업로드 가능합니다."); return; }
-    const oversized = [...allowed].filter(f => f.size > 5 * 1024 * 1024);
-    if (oversized.length) { setError(`파일 크기는 5MB 이하만 지원합니다: ${oversized.map(f => f.name).join(", ")}`); return; }
-    setUploading(true); setError(""); setSuccess("");
-    try {
-      for (const file of allowed) {
-        const id    = `file_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-        const binIds = await cloudUploadFile(file);
-        const fileMeta = {
-          id,
-          binIds,
-          academy_id:  academyId,
-          file_name:   file.name,
-          file_size:   file.size,
-          round,
-          year,
-          date,
-          uploaded_at: new Date().toLocaleString("ko-KR"),
-        };
-        onUpload(fileMeta);
-      }
-      setSuccess(`${allowed.length}개 파일이 업로드되었습니다.`);
-    } catch (e) {
-      setError(`업로드 오류: ${e.message}`);
-    }
-    setUploading(false);
-  };
-
-  return (
-    <div>
-      <div style={{ marginBottom: 28 }}>
-        <h2 style={{ fontSize: 22, fontWeight: 800, color: "#fff", margin: 0 }}>📤 파일 업로드</h2>
-        <p style={{ color: TEXT2, fontSize: 14, marginTop: 4 }}>팀별 결과 PDF를 업로드하면 해당 팀이 다운로드할 수 있습니다</p>
-      </div>
-
-      <div style={S.card}>
-        <h3 style={{ margin: "0 0 20px", fontSize: 16, fontWeight: 700, color: "#fff" }}>업로드 설정</h3>
-        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "1fr 1fr 1fr 1fr", gap: 16, marginBottom: 24 }}>
-          <div>
-            <label style={{ fontSize: 13, color: TEXT2, display: "block", marginBottom: 8 }}>팀 선택</label>
-            <select style={{ ...S.select, width: "100%" }} value={academyId} onChange={e => setAcademyId(Number(e.target.value))}>
-              {meta.academies.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-            </select>
-          </div>
-          <div>
-            <label style={{ fontSize: 13, color: TEXT2, display: "block", marginBottom: 8 }}>연도</label>
-            <select style={{ ...S.select, width: "100%" }} value={year} onChange={e => setYear(Number(e.target.value))}>
-              {[2024, 2025, 2026].map(y => <option key={y} value={y}>{y}년</option>)}
-            </select>
-          </div>
-          <div>
-            <label style={{ fontSize: 13, color: TEXT2, display: "block", marginBottom: 8 }}>차시</label>
-            <select style={{ ...S.select, width: "100%" }} value={round} onChange={e => setRound(Number(e.target.value))}>
-              {[1,2,3,4,5,6].map(r => <option key={r} value={r}>{r}차시</option>)}
-            </select>
-          </div>
-          <div>
-            <label style={{ fontSize: 13, color: TEXT2, display: "block", marginBottom: 8 }}>테스트 날짜</label>
-            <input style={S.input} type="date" value={date} onChange={e => setDate(e.target.value)} />
-          </div>
-        </div>
-
-        <input ref={fileRef} type="file" accept=".pdf,.jpg,.jpeg,.png,.zip,.7z,.rar" multiple style={{ display: "none" }} onChange={e => handleFiles(e.target.files)} />
-
-        <div
-          onDragOver={e => { e.preventDefault(); setDragging(true); }}
-          onDragLeave={() => setDragging(false)}
-          onDrop={e => { e.preventDefault(); setDragging(false); handleFiles(e.dataTransfer.files); }}
-          onClick={() => !uploading && fileRef.current?.click()}
-          style={{ border: `2px dashed ${dragging ? LIME : BORDER}`, borderRadius: 16, padding: 64, textAlign: "center", background: dragging ? `${LIME}05` : "transparent", transition: "all 0.2s ease", cursor: uploading ? "default" : "pointer" }}
-        >
-          {uploading ? (
-            <div>
-              <div style={{ fontSize: 48, marginBottom: 12 }}>⏳</div>
-              <div style={{ fontSize: 16, fontWeight: 600, color: "#fff" }}>업로드 중...</div>
-            </div>
-          ) : (
-            <div>
-              <div style={{ fontSize: 48, marginBottom: 12 }}>📁</div>
-              <div style={{ fontSize: 16, fontWeight: 600, color: "#fff", marginBottom: 8 }}>PDF를 드래그하거나 클릭하여 업로드</div>
-              <div style={{ fontSize: 13, color: TEXT2 }}>여러 파일 동시 업로드 가능 · 최대 5MB</div>
-            </div>
-          )}
-        </div>
-
-        {success && <div style={{ background: `${LIME}10`, border: `1px solid ${LIME}30`, borderRadius: 10, padding: "12px 16px", marginTop: 16, color: LIME, fontSize: 13 }}>✅ {success}</div>}
-        {error   && <div style={{ background: `${RED}10`,  border: `1px solid ${RED}30`,  borderRadius: 10, padding: "12px 16px", marginTop: 16, color: RED,  fontSize: 13 }}>⚠️ {error}</div>}
-      </div>
-
-      {/* 업로드 이력 */}
-      <div style={S.card}>
-        <h3 style={{ margin: "0 0 16px", fontSize: 16, fontWeight: 700, color: "#fff" }}>📋 업로드 이력 ({meta.resultFiles.length}개)</h3>
-        {meta.resultFiles.length === 0 ? (
-          <div style={{ textAlign: "center", padding: 40, color: TEXT2 }}>
-            <div style={{ fontSize: 40, marginBottom: 12 }}>📭</div>
-            <div>업로드된 파일이 없습니다</div>
+      {/* Files List */}
+      <div style={styles.card}>
+        <h3 style={{ margin: "0 0 16px", fontSize: 16, fontWeight: 700, color: "#fff" }}>
+          {selectedRound ? `${selectedRound}차시 결과 파일` : "전체 결과 파일"} ({filteredFiles.length}개)
+        </h3>
+        {filteredFiles.length === 0 ? (
+          <div style={{ textAlign: "center", padding: 48, color: TEXT2 }}>
+            <div style={{ fontSize: 48, marginBottom: 16 }}>📭</div>
+            <div>등록된 결과 파일이 없습니다.</div>
           </div>
         ) : (
-          <div style={{ overflowX: "auto" }}>
-          <table style={S.table}>
-            <thead><tr>
-              <th style={S.th}>파일명</th>
-              <th style={S.th}>팀</th>
-              <th style={S.th}>차시</th>
-              <th style={{ ...S.th, display: isMobile ? "none" : "" }}>크기</th>
-              <th style={{ ...S.th, display: isMobile ? "none" : "" }}>업로드 일시</th>
-              <th style={{ ...S.th, textAlign: "right" }}></th>
-            </tr></thead>
+          <table style={styles.table}>
+            <thead>
+              <tr>
+                <th style={styles.th}>파일명</th>
+                <th style={styles.th}>차시</th>
+                <th style={styles.th}>형식</th>
+                <th style={{ ...styles.th, textAlign: "right" }}>다운로드</th>
+              </tr>
+            </thead>
             <tbody>
-              {[...meta.resultFiles].reverse().map(f => (
-                <tr key={f.id}>
-                  <td style={S.td}><span style={{ marginRight: 8 }}>📕</span><span style={{ fontWeight: 500, color: "#fff", fontSize: isMobile ? 12 : 14 }}>{f.file_name}</span></td>
-                  <td style={S.td}><span style={{ color: LIME }}>{meta.academies.find(a => a.id === f.academy_id)?.name}</span></td>
-                  <td style={S.td}>{f.year}년 {f.round}차시</td>
-                  <td style={{ ...S.td, display: isMobile ? "none" : "" }}>{fmt(f.file_size)}</td>
-                  <td style={{ ...S.td, display: isMobile ? "none" : "" }}>{f.uploaded_at}</td>
-                  <td style={{ ...S.td, textAlign: "right" }}>
-                    <button
-                      style={{ ...S.btnDanger, padding: "4px 10px", fontSize: 12, opacity: deleting === f.id ? 0.5 : 1 }}
-                      onClick={() => handleDelete(f)}
-                      disabled={deleting === f.id}
-                    >{deleting === f.id ? "삭제중..." : "삭제"}</button>
-                  </td>
-                </tr>
-              ))}
+              {filteredFiles.map(f => {
+                const test = TESTS.find(t => t.id === f.test_id);
+                return (
+                  <tr key={f.id}>
+                    <td style={styles.td}>
+                      <span style={{ marginRight: 8, fontSize: 18 }}>{f.file_type === "pdf" ? "📕" : "📗"}</span>
+                      <span style={{ fontWeight: 500, color: "#fff" }}>{f.file_name}</span>
+                    </td>
+                    <td style={styles.td}>{test?.round}차시</td>
+                    <td style={styles.td}>
+                      <span style={{ ...styles.badge, background: f.file_type === "pdf" ? `${RED}20` : `${LIME}20`, color: f.file_type === "pdf" ? RED : LIME }}>
+                        {f.file_type.toUpperCase()}
+                      </span>
+                    </td>
+                    <td style={{ ...styles.td, textAlign: "right" }}>
+                      <button
+                        style={{ ...styles.btn, padding: "8px 16px", fontSize: 13, opacity: downloadingId === f.id ? 0.6 : 1 }}
+                        onClick={() => handleDownload(f)}
+                        disabled={downloadingId === f.id}
+                      >
+                        {downloadingId === f.id ? "⏳" : "⬇️"} 다운로드
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
-          </div>
         )}
       </div>
     </div>
   );
 }
 
-// ── 대시보드 수기 입력 (관리자 CMS) ──────────────────
-const TABS = [
-  { id: "info",    label: "📋 기본 정보" },
-  { id: "top",     label: "🏆 최고 기록" },
-  { id: "radar",   label: "🕸️ 팀 능력치" },
-  { id: "ranking", label: "🏅 선수 랭킹" },
-];
-
-function DataEntryPage({ meta, onMetaChange }) {
-  const isMobile  = useContext(MobileCtx);
-  const testTypes = meta.testTypes ?? DEFAULT_TEST_TYPES;
-  const [academyId, setAcademyId] = useState(meta.academies[0]?.id ?? 1);
-  const [tab,       setTab]       = useState("info");
-  const [draft,     setDraft]     = useState(null); // 편집 중인 임시 복사본
-  const [saved,     setSaved]     = useState(false);
-  const [rankTest,  setRankTest]  = useState(testTypes[0]?.id ?? "");
-
-  // academyId 바뀌면 draft 초기화
-  const db = (() => {
-    const saved = meta.dashboards?.[academyId]
-      ? JSON.parse(JSON.stringify(meta.dashboards[academyId]))
-      : defaultDashboard(testTypes);
-    // 새로 추가된 종목이 기존 대시보드에 없을 수 있으므로 보완
-    testTypes.forEach(tt => {
-      if (!saved.topPerformers[tt.id]) saved.topPerformers[tt.id] = { name: "", value: "" };
-      if (!saved.rankings[tt.id])      saved.rankings[tt.id]      = [];
-    });
-    return saved;
-  })();
-  const cur = draft ?? db;
-
-  const setAcademy = (id) => { setAcademyId(id); setDraft(null); };
-
-  const update = (path, value) => {
-    setDraft(prev => {
-      const base = prev ?? db;
-      // path: ["stats","playerCount"] or ["topPerformers","sprint_20m","name"] etc.
-      const next = JSON.parse(JSON.stringify(base));
-      let obj = next;
-      for (let i = 0; i < path.length - 1; i++) obj = obj[path[i]];
-      obj[path[path.length - 1]] = value;
-      return next;
-    });
-  };
-
-  const handleSave = () => {
-    if (!draft) return;
-    onMetaChange(prev => ({
-      ...prev,
-      dashboards: {
-        ...prev.dashboards,
-        [academyId]: { ...draft, updatedAt: new Date().toLocaleString("ko-KR") },
-      },
-    }));
-    setDraft(null);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
-  };
-
-  const isDirty = draft !== null;
-
-  // 랭킹 행 추가
-  const addRankRow = () => {
-    const rows = [...(cur.rankings[rankTest] ?? []), { name: "", value: "", age: "" }];
-    update(["rankings", rankTest], rows);
-  };
-  const removeRankRow = (i) => {
-    const rows = (cur.rankings[rankTest] ?? []).filter((_, idx) => idx !== i);
-    update(["rankings", rankTest], rows);
-  };
-  const setRankCell = (i, field, val) => {
-    const rows = JSON.parse(JSON.stringify(cur.rankings[rankTest] ?? []));
-    rows[i] = { ...rows[i], [field]: val };
-    update(["rankings", rankTest], rows);
-  };
-
-  const inStyle = {
-    ...S.input,
-    padding: "8px 12px",
-    fontSize: 13,
-  };
-  const smIn = (extra = {}) => ({ ...inStyle, ...extra });
-
-  return (
-    <div>
-      {/* 헤더 */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 24, flexWrap: "wrap", gap: 12 }}>
-        <div>
-          <h2 style={{ fontSize: isMobile ? 18 : 22, fontWeight: 800, color: "#fff", margin: 0 }}>✏️ 대시보드 수기 입력</h2>
-          {!isMobile && <p style={{ color: TEXT2, fontSize: 14, marginTop: 4 }}>팀 대시보드에 표시될 내용을 직접 입력하세요</p>}
-        </div>
-        <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-          {isDirty && !isMobile && <span style={{ fontSize: 12, color: ORANGE }}>● 저장되지 않은 변경사항</span>}
-          <button style={{ ...S.btn, opacity: isDirty ? 1 : 0.4, minWidth: 100 }} onClick={handleSave} disabled={!isDirty}>
-            {saved ? "✅ 저장됨" : isDirty && isMobile ? "● 💾 저장" : "💾 저장"}
-          </button>
-        </div>
-      </div>
-
-      {/* 팀 선택 */}
-      <div style={{ display: "flex", gap: 12, marginBottom: 24 }}>
-        <select style={S.select} value={academyId} onChange={e => setAcademy(Number(e.target.value))}>
-          {meta.academies.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-        </select>
-        {db.updatedAt && <span style={{ fontSize: 12, color: TEXT2, alignSelf: "center" }}>마지막 저장: {db.updatedAt}</span>}
-      </div>
-
-      {/* 탭 */}
-      <div style={{ display: "flex", gap: isMobile ? 0 : 6, marginBottom: 24, borderBottom: `1px solid ${BORDER}`, paddingBottom: 0, overflowX: "auto" }}>
-        {TABS.map(t => (
-          <button key={t.id} onClick={() => setTab(t.id)} style={{
-            background: "transparent", border: "none", cursor: "pointer",
-            fontSize: isMobile ? 20 : 14, fontWeight: tab === t.id ? 700 : 400,
-            color: tab === t.id ? "#fff" : TEXT2,
-            padding: isMobile ? "10px 16px" : "10px 18px",
-            borderBottom: tab === t.id ? `2px solid ${LIME}` : "2px solid transparent",
-            marginBottom: -1, whiteSpace: "nowrap", flex: isMobile ? 1 : "none",
-          }}>{isMobile ? t.label.split(" ")[0] : t.label}</button>
-        ))}
-      </div>
-
-      {/* ── 탭: 기본 정보 ── */}
-      {tab === "info" && (
-        <div style={S.card}>
-          <h3 style={{ margin: "0 0 20px", fontSize: 15, fontWeight: 700, color: "#fff" }}>요약 수치 & 공지</h3>
-          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "1fr 1fr 1fr 1fr", gap: 16, marginBottom: 24 }}>
-            <div>
-              <label style={{ fontSize: 12, color: TEXT2, display: "block", marginBottom: 6 }}>등록 선수 수</label>
-              <input style={inStyle} placeholder="예: 32명" value={cur.stats.playerCount} onChange={e => update(["stats","playerCount"], e.target.value)} />
-            </div>
-            <div>
-              <label style={{ fontSize: 12, color: TEXT2, display: "block", marginBottom: 6 }}>완료 테스트 수</label>
-              <input style={inStyle} placeholder="예: 3회" value={cur.stats.testCount} onChange={e => update(["stats","testCount"], e.target.value)} />
-            </div>
-            <div>
-              <label style={{ fontSize: 12, color: TEXT2, display: "block", marginBottom: 6 }}>최근 차시</label>
-              <input style={inStyle} placeholder="예: 2" value={cur.stats.latestRound} onChange={e => update(["stats","latestRound"], e.target.value)} />
-            </div>
-            <div>
-              <label style={{ fontSize: 12, color: TEXT2, display: "block", marginBottom: 6 }}>연도</label>
-              <input style={inStyle} placeholder="예: 2026" value={cur.stats.year} onChange={e => update(["stats","year"], e.target.value)} />
-            </div>
-          </div>
-          <div>
-            <label style={{ fontSize: 12, color: TEXT2, display: "block", marginBottom: 6 }}>공지사항 (팀 대시보드 상단에 표시)</label>
-            <textarea
-              style={{ ...S.input, height: 100, resize: "vertical", lineHeight: 1.6 }}
-              placeholder="예: 3차시 테스트가 완료되었습니다. 결과 파일을 다운로드하세요."
-              value={cur.notice}
-              onChange={e => update(["notice"], e.target.value)}
-            />
-          </div>
-        </div>
-      )}
-
-      {/* ── 탭: 최고 기록 ── */}
-      {tab === "top" && (
-        <div style={S.card}>
-          <h3 style={{ margin: "0 0 20px", fontSize: 15, fontWeight: 700, color: "#fff" }}>테스트별 최고 기록 선수</h3>
-          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-            {testTypes.map(tt => (
-              <div key={tt.id} style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "160px 1fr 1fr", gap: 12, alignItems: "center", padding: "16px 20px", background: CARD2, borderRadius: 10 }}>
-                <div style={{ fontSize: 14, fontWeight: 600, color: "#fff" }}>
-                  {tt.name}
-                  <span style={{ fontSize: 11, color: TEXT2, marginLeft: 6 }}>({tt.unit})</span>
-                </div>
-                <div>
-                  <label style={{ fontSize: 11, color: TEXT2, display: "block", marginBottom: 4 }}>선수 이름</label>
-                  <input style={smIn()} placeholder="이름 입력" value={cur.topPerformers[tt.id]?.name ?? ""} onChange={e => update(["topPerformers", tt.id, "name"], e.target.value)} />
-                </div>
-                <div>
-                  <label style={{ fontSize: 11, color: TEXT2, display: "block", marginBottom: 4 }}>기록 값 ({tt.unit})</label>
-                  <input style={smIn()} placeholder={`예: ${tt.id === "sprint_20m" ? "3.82" : tt.id === "jump" ? "55" : "24"}`} value={cur.topPerformers[tt.id]?.value ?? ""} onChange={e => update(["topPerformers", tt.id, "value"], e.target.value)} />
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* ── 탭: 팀 능력치 ── */}
-      {tab === "radar" && (
-        <div style={S.card}>
-          <h3 style={{ margin: "0 0 8px", fontSize: 15, fontWeight: 700, color: "#fff" }}>팀 능력치 레이더 차트</h3>
-          <p style={{ color: TEXT2, fontSize: 13, marginBottom: 24 }}>각 항목을 0~100 사이 값으로 입력하세요</p>
-          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16 }}>
-            {RADAR_CATS.map(cat => {
-              const val = Number(cur.radarData[cat]) || 0;
-              return (
-                <div key={cat} style={{ padding: "16px 20px", background: CARD2, borderRadius: 10 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10 }}>
-                    <span style={{ fontSize: 14, fontWeight: 600, color: "#fff" }}>{cat}</span>
-                    <span style={{ fontSize: 20, fontWeight: 800, color: LIME }}>{val}</span>
-                  </div>
-                  <input
-                    type="range" min="0" max="100" value={val}
-                    onChange={e => update(["radarData", cat], Number(e.target.value))}
-                    style={{ width: "100%", accentColor: LIME, cursor: "pointer" }}
-                  />
-                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: TEXT2, marginTop: 4 }}>
-                    <span>0</span><span>50</span><span>100</span>
-                  </div>
-                  <input
-                    type="number" min="0" max="100" value={val}
-                    onChange={e => update(["radarData", cat], Math.min(100, Math.max(0, Number(e.target.value))))}
-                    style={{ ...smIn(), width: 80, marginTop: 8, textAlign: "center" }}
-                  />
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* ── 탭: 선수 랭킹 ── */}
-      {tab === "ranking" && (
-        <div style={S.card}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-            <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: "#fff" }}>선수 랭킹 입력</h3>
-            <div style={{ display: "flex", gap: 12 }}>
-              <select style={S.select} value={rankTest} onChange={e => setRankTest(e.target.value)}>
-                {testTypes.map(tt => <option key={tt.id} value={tt.id}>{tt.name} ({tt.unit})</option>)}
-              </select>
-              <button style={S.btnSm} onClick={addRankRow}>＋ 행 추가</button>
-            </div>
-          </div>
-
-          {(cur.rankings[rankTest] ?? []).length === 0 ? (
-            <div style={{ textAlign: "center", padding: 40, color: TEXT2 }}>
-              <div style={{ fontSize: 36, marginBottom: 12 }}>📋</div>
-              <div>행 추가 버튼으로 선수를 입력하세요</div>
-            </div>
-          ) : isMobile ? (
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              {(cur.rankings[rankTest] ?? []).map((row, i) => (
-                <div key={i} style={{ background: CARD2, borderRadius: 10, padding: "12px 14px", display: "grid", gridTemplateColumns: "24px 1fr auto", gap: 10, alignItems: "center" }}>
-                  <span style={{ color: TEXT2, fontWeight: 700, fontSize: 14 }}>{i + 1}</span>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                    <input style={smIn({ width: "100%" })} placeholder="이름" value={row.name} onChange={e => setRankCell(i, "name", e.target.value)} />
-                    <div style={{ display: "flex", gap: 8 }}>
-                      <input style={smIn({ flex: 1 })} placeholder="나이" value={row.age} onChange={e => setRankCell(i, "age", e.target.value)} />
-                      <input style={smIn({ flex: 1 })} placeholder={`기록(${testTypes.find(t=>t.id===rankTest)?.unit})`} value={row.value} onChange={e => setRankCell(i, "value", e.target.value)} />
-                    </div>
-                  </div>
-                  <button style={{ ...S.btnDanger, padding: "4px 8px", border: "none", fontSize: 16 }} onClick={() => removeRankRow(i)}>🗑</button>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <table style={S.table}>
-              <thead><tr>
-                <th style={{ ...S.th, width: 40 }}>#</th>
-                <th style={S.th}>선수명 *</th>
-                <th style={{ ...S.th, width: 90 }}>나이</th>
-                <th style={{ ...S.th, width: 120 }}>기록 ({testTypes.find(t=>t.id===rankTest)?.unit})</th>
-                <th style={{ ...S.th, width: 50 }}></th>
-              </tr></thead>
-              <tbody>
-                {(cur.rankings[rankTest] ?? []).map((row, i) => (
-                  <tr key={i}>
-                    <td style={{ ...S.td, color: TEXT2, fontWeight: 700 }}>{i + 1}</td>
-                    <td style={{ ...S.td, padding: "8px 12px" }}>
-                      <input style={smIn({ width: "100%" })} placeholder="이름" value={row.name} onChange={e => setRankCell(i, "name", e.target.value)} />
-                    </td>
-                    <td style={{ ...S.td, padding: "8px 8px" }}>
-                      <input style={smIn({ width: 70 })} placeholder="나이" value={row.age} onChange={e => setRankCell(i, "age", e.target.value)} />
-                    </td>
-                    <td style={{ ...S.td, padding: "8px 8px" }}>
-                      <input style={smIn({ width: 100 })} placeholder="기록" value={row.value} onChange={e => setRankCell(i, "value", e.target.value)} />
-                    </td>
-                    <td style={{ ...S.td, textAlign: "center" }}>
-                      <button style={{ ...S.btnDanger, padding: "4px 8px", border: "none", fontSize: 16 }} onClick={() => removeRankRow(i)}>🗑</button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-          <p style={{ fontSize: 12, color: TEXT2, marginTop: 12 }}>입력 순서가 랭킹 순서가 됩니다. 행을 드래그로 재정렬하려면 순서에 맞게 입력하세요.</p>
-        </div>
-      )}
-
-      {/* 하단 저장 버튼 */}
-      <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 16 }}>
-        <button style={{ ...S.btn, opacity: isDirty ? 1 : 0.4, minWidth: 120 }} onClick={handleSave} disabled={!isDirty}>
-          {saved ? "✅ 저장됨" : "💾 저장"}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-// ── 종목 관리 (관리자) ────────────────────────────────
-function TestTypesPage({ meta, onMetaChange }) {
-  const isMobile  = useContext(MobileCtx);
-  const testTypes = meta.testTypes ?? DEFAULT_TEST_TYPES;
-  const [editingId,  setEditingId]  = useState(null);
-  const [editFields, setEditFields] = useState({ name: "", unit: "", lower_better: false });
-  const [showAdd,    setShowAdd]    = useState(false);
-  const [newFields,  setNewFields]  = useState({ id: "", name: "", unit: "", lower_better: false });
-
-  const startEdit = (tt) => { setEditingId(tt.id); setEditFields({ name: tt.name, unit: tt.unit, lower_better: tt.lower_better }); };
-
-  const handleSaveEdit = (id) => {
-    if (!editFields.name.trim()) return;
-    onMetaChange(prev => ({ ...prev, testTypes: prev.testTypes.map(t => t.id === id ? { ...t, ...editFields, name: editFields.name.trim(), unit: editFields.unit.trim() } : t) }));
-    setEditingId(null);
-  };
-
-  const handleAdd = () => {
-    const id = newFields.id.trim() || newFields.name.trim().toLowerCase().replace(/\s+/g, "_");
-    if (!id || !newFields.name.trim()) return;
-    if (testTypes.find(t => t.id === id)) { alert("이미 존재하는 ID입니다."); return; }
-    onMetaChange(prev => ({ ...prev, testTypes: [...prev.testTypes, { id, name: newFields.name.trim(), unit: newFields.unit.trim(), lower_better: newFields.lower_better }] }));
-    setNewFields({ id: "", name: "", unit: "", lower_better: false });
-    setShowAdd(false);
-  };
-
-  const handleDelete = (id) => {
-    if (!confirm("이 종목을 삭제하시겠습니까?")) return;
-    onMetaChange(prev => ({ ...prev, testTypes: prev.testTypes.filter(t => t.id !== id) }));
-  };
-
-  const inStyle = { ...S.input, padding: "7px 12px", fontSize: 13 };
+// Academy Management Page (Admin only)
+function AcademyManagePage() {
+  const [showForm, setShowForm] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newLocation, setNewLocation] = useState("");
 
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 28 }}>
         <div>
-          <h2 style={{ fontSize: 22, fontWeight: 800, color: "#fff", margin: 0 }}>⚙️ 종목 관리</h2>
-          <p style={{ color: TEXT2, fontSize: 14, marginTop: 4 }}>테스트 종목을 추가·수정·삭제할 수 있습니다</p>
+          <h2 style={{ fontSize: 22, fontWeight: 800, color: "#fff", margin: 0 }}>🏫 아카데미 관리</h2>
+          <p style={{ color: TEXT2, fontSize: 14, marginTop: 4 }}>등록된 아카데미를 관리하세요</p>
         </div>
-        <button style={S.btn} onClick={() => setShowAdd(!showAdd)}>{showAdd ? "✕ 닫기" : "＋ 종목 추가"}</button>
+        <button style={styles.btn} onClick={() => setShowForm(!showForm)}>
+          {showForm ? "✕ 닫기" : "＋ 아카데미 추가"}
+        </button>
       </div>
 
-      {showAdd && (
-        <div style={{ ...S.card, border: `1px solid ${LIME}30`, background: `${LIME}04`, marginBottom: 24 }}>
-          <h3 style={{ margin: "0 0 16px", fontSize: 15, fontWeight: 700, color: "#fff" }}>새 종목 등록</h3>
-          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "1fr 1fr 1fr auto", gap: 12, alignItems: "end" }}>
+      {showForm && (
+        <div style={{ ...styles.card, border: `1px solid ${LIME}30`, background: `${LIME}05` }}>
+          <h3 style={{ margin: "0 0 16px", fontSize: 16, fontWeight: 700, color: "#fff" }}>새 아카데미 등록</h3>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
             <div>
-              <label style={{ fontSize: 12, color: TEXT2, display: "block", marginBottom: 6 }}>종목명 *</label>
-              <input style={inStyle} placeholder="예: 10M 스프린트" value={newFields.name} onChange={e => setNewFields(p => ({ ...p, name: e.target.value }))} />
+              <label style={{ fontSize: 13, color: TEXT2, display: "block", marginBottom: 8 }}>아카데미 이름</label>
+              <input style={styles.input} placeholder="예: 서울 FC 아카데미" value={newName} onChange={e => setNewName(e.target.value)} />
             </div>
             <div>
-              <label style={{ fontSize: 12, color: TEXT2, display: "block", marginBottom: 6 }}>단위</label>
-              <input style={inStyle} placeholder="예: 초, cm, 회" value={newFields.unit} onChange={e => setNewFields(p => ({ ...p, unit: e.target.value }))} />
-            </div>
-            <div>
-              <label style={{ fontSize: 12, color: TEXT2, display: "block", marginBottom: 6 }}>ID (영문, 선택)</label>
-              <input style={inStyle} placeholder="예: sprint_10m" value={newFields.id} onChange={e => setNewFields(p => ({ ...p, id: e.target.value }))} />
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: TEXT, cursor: "pointer" }}>
-                <input type="checkbox" checked={newFields.lower_better} onChange={e => setNewFields(p => ({ ...p, lower_better: e.target.checked }))} style={{ accentColor: LIME }} />
-                낮을수록 좋음
-              </label>
-              <button style={S.btnSm} onClick={handleAdd} disabled={!newFields.name.trim()}>추가</button>
+              <label style={{ fontSize: 13, color: TEXT2, display: "block", marginBottom: 8 }}>소재지</label>
+              <input style={styles.input} placeholder="예: 서울 마포구" value={newLocation} onChange={e => setNewLocation(e.target.value)} />
             </div>
           </div>
+          <button style={styles.btn} onClick={() => { setShowForm(false); alert("아카데미가 등록되었습니다. (데모)"); }}>등록하기</button>
         </div>
       )}
 
-      <div style={S.card}>
-        <table style={S.table}>
-          <thead><tr>
-            <th style={S.th}>종목명</th>
-            <th style={{ ...S.th, display: isMobile ? "none" : "" }}>ID</th>
-            <th style={S.th}>단위</th>
-            <th style={S.th}>기준</th>
-            <th style={{ ...S.th, textAlign: "right" }}></th>
-          </tr></thead>
-          <tbody>
-            {testTypes.map(tt => (
-              <tr key={tt.id}>
-                {editingId === tt.id ? (
-                  <>
-                    <td style={{ ...S.td, padding: "8px 12px" }}>
-                      <input style={{ ...inStyle, width: "100%" }} value={editFields.name} onChange={e => setEditFields(p => ({ ...p, name: e.target.value }))} />
-                    </td>
-                    <td style={{ ...S.td, display: isMobile ? "none" : "" }}><span style={{ color: TEXT2, fontSize: 12 }}>{tt.id}</span></td>
-                    <td style={{ ...S.td, padding: "8px 8px" }}>
-                      <input style={{ ...inStyle, width: 70 }} value={editFields.unit} onChange={e => setEditFields(p => ({ ...p, unit: e.target.value }))} />
-                    </td>
-                    <td style={S.td}>
-                      <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: TEXT, cursor: "pointer" }}>
-                        <input type="checkbox" checked={editFields.lower_better} onChange={e => setEditFields(p => ({ ...p, lower_better: e.target.checked }))} style={{ accentColor: LIME }} />
-                        낮을수록 좋음
-                      </label>
-                    </td>
-                    <td style={{ ...S.td, textAlign: "right" }}>
-                      <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-                        <button style={S.btnSm} onClick={() => handleSaveEdit(tt.id)}>저장</button>
-                        <button style={S.btnGhost} onClick={() => setEditingId(null)}>취소</button>
-                      </div>
-                    </td>
-                  </>
-                ) : (
-                  <>
-                    <td style={S.td}><span style={{ fontWeight: 600, color: "#fff" }}>{tt.name}</span></td>
-                    <td style={{ ...S.td, display: isMobile ? "none" : "" }}><span style={{ fontSize: 12, color: TEXT2, fontFamily: "monospace" }}>{tt.id}</span></td>
-                    <td style={S.td}>{tt.unit}</td>
-                    <td style={S.td}><span style={{ fontSize: isMobile ? 18 : 12, color: tt.lower_better ? BLUE : LIME }}>{isMobile ? (tt.lower_better ? "↓" : "↑") : (tt.lower_better ? "낮을수록 좋음" : "높을수록 좋음")}</span></td>
-                    <td style={{ ...S.td, textAlign: "right" }}>
-                      <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-                        <button style={S.btnGhost} onClick={() => startEdit(tt)}>수정</button>
-                        <button style={S.btnDanger} onClick={() => handleDelete(tt.id)}>삭제</button>
-                      </div>
-                    </td>
-                  </>
-                )}
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 16 }}>
+        {ACADEMIES.map(a => (
+          <div key={a.id} style={{ ...styles.card, marginBottom: 0 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+              <div>
+                <div style={{ fontSize: 17, fontWeight: 700, color: "#fff", marginBottom: 4 }}>{a.name}</div>
+                <div style={{ fontSize: 13, color: TEXT2 }}>📍 {a.location}</div>
+              </div>
+              <span style={{ ...styles.badge, background: `${LIME}20`, color: LIME }}>활성</span>
+            </div>
+            <div style={{ display: "flex", gap: 24, marginTop: 20, paddingTop: 16, borderTop: `1px solid ${BORDER}` }}>
+              <div>
+                <div style={{ fontSize: 24, fontWeight: 800, color: "#fff" }}>{a.players}</div>
+                <div style={{ fontSize: 12, color: TEXT2 }}>등록 선수</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 24, fontWeight: 800, color: "#fff" }}>{TESTS.filter(t => t.academy_id === a.id).length}</div>
+                <div style={{ fontSize: 12, color: TEXT2 }}>테스트 수</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 24, fontWeight: 800, color: "#fff" }}>{RESULT_FILES.filter(f => f.academy_id === a.id).length}</div>
+                <div style={{ fontSize: 12, color: TEXT2 }}>결과 파일</div>
+              </div>
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );
 }
 
-// ── 파일 다운로드 (팀) ────────────────────────────────
-function DownloadPage({ user, meta }) {
-  const [downloading, setDownloading] = useState(null);
-  const [selectedRound, setSelectedRound] = useState(null);
-  const [readyBlobs, setReadyBlobs] = useState({}); // { [fileId]: { blob, name } }
+// Data Upload Page (Admin only)
+function UploadPage() {
+  const [uploadType, setUploadType] = useState("result");
+  const [selectedAcademy, setSelectedAcademy] = useState(1);
+  const [selectedYear, setSelectedYear] = useState(2025);
+  const [selectedRound, setSelectedRound] = useState(1);
+  const [dragging, setDragging] = useState(false);
 
-  const myFiles = meta.resultFiles.filter(f => f.academy_id === user.academy_id);
-  const rounds  = [...new Set(myFiles.map(f => f.round))].sort();
+  return (
+    <div>
+      <div style={{ marginBottom: 28 }}>
+        <h2 style={{ fontSize: 22, fontWeight: 800, color: "#fff", margin: 0 }}>📤 데이터 업로드</h2>
+        <p style={{ color: TEXT2, fontSize: 14, marginTop: 4 }}>테스트 데이터 및 결과 파일을 업로드하세요</p>
+      </div>
 
-  const filtered = selectedRound ? myFiles.filter(f => f.round === selectedRound) : myFiles;
+      <div style={{ display: "flex", gap: 12, marginBottom: 24 }}>
+        <button
+          style={uploadType === "result" ? styles.btn : styles.btnOutline}
+          onClick={() => setUploadType("result")}
+        >
+          📄 결과지 업로드
+        </button>
+        <button
+          style={uploadType === "data" ? styles.btn : styles.btnOutline}
+          onClick={() => setUploadType("data")}
+        >
+          📊 테스트 데이터 업로드
+        </button>
+      </div>
 
-  const handleDownload = async (file) => {
-    setDownloading(file.id);
-    try {
-      if (!file.binIds && !file.binId) { alert("이 파일은 구버전으로 업로드되었습니다. 관리자가 다시 업로드해야 합니다."); setDownloading(null); return; }
-      const b64 = await cloudDownloadFile(file.binIds ?? file.binId);
-      if (!b64) { alert("파일을 찾을 수 없습니다. 관리자에게 문의하세요."); setDownloading(null); return; }
-      const ext = file.file_name.split(".").pop().toLowerCase();
-      const mimeMap = { pdf: "application/pdf", jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", zip: "application/zip", "7z": "application/x-7z-compressed", rar: "application/x-rar-compressed" };
-      const blob = base64ToBlob(b64, mimeMap[ext] ?? "application/octet-stream");
-      setReadyBlobs(prev => ({ ...prev, [file.id]: { blob, name: file.file_name } }));
-    } catch (e) {
-      alert(`다운로드 실패: ${e.message}`);
+      <div style={styles.card}>
+        <h3 style={{ margin: "0 0 20px", fontSize: 16, fontWeight: 700, color: "#fff" }}>
+          {uploadType === "result" ? "결과지 파일 업로드" : "테스트 데이터 업로드"}
+        </h3>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16, marginBottom: 24 }}>
+          <div>
+            <label style={{ fontSize: 13, color: TEXT2, display: "block", marginBottom: 8 }}>아카데미</label>
+            <select style={{ ...styles.select, width: "100%" }} value={selectedAcademy} onChange={e => setSelectedAcademy(Number(e.target.value))}>
+              {ACADEMIES.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+            </select>
+          </div>
+          <div>
+            <label style={{ fontSize: 13, color: TEXT2, display: "block", marginBottom: 8 }}>연도</label>
+            <select style={{ ...styles.select, width: "100%" }} value={selectedYear} onChange={e => setSelectedYear(Number(e.target.value))}>
+              <option value={2025}>2025</option>
+            </select>
+          </div>
+          <div>
+            <label style={{ fontSize: 13, color: TEXT2, display: "block", marginBottom: 8 }}>차시</label>
+            <select style={{ ...styles.select, width: "100%" }} value={selectedRound} onChange={e => setSelectedRound(Number(e.target.value))}>
+              {[1,2,3,4].map(r => <option key={r} value={r}>{r}차시</option>)}
+            </select>
+          </div>
+        </div>
+
+        <div
+          onDragOver={e => { e.preventDefault(); setDragging(true); }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={e => { e.preventDefault(); setDragging(false); alert("파일 업로드 완료! (데모)"); }}
+          style={{
+            border: `2px dashed ${dragging ? LIME : BORDER}`,
+            borderRadius: 16,
+            padding: 60,
+            textAlign: "center",
+            background: dragging ? `${LIME}05` : "transparent",
+            transition: "all 0.2s ease",
+            cursor: "pointer",
+          }}
+          onClick={() => alert("파일 선택 대화상자가 열립니다. (데모)")}
+        >
+          <div style={{ fontSize: 48, marginBottom: 16 }}>{uploadType === "result" ? "📁" : "📊"}</div>
+          <div style={{ fontSize: 16, fontWeight: 600, color: "#fff", marginBottom: 8 }}>
+            파일을 드래그하거나 클릭하여 업로드
+          </div>
+          <div style={{ fontSize: 13, color: TEXT2 }}>
+            {uploadType === "result" ? "PDF, Excel 파일 지원" : "Excel, CSV 파일 지원"}
+          </div>
+          <div style={{ fontSize: 12, color: TEXT2, marginTop: 8 }}>최대 50MB</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Player Analysis Page
+function PlayerAnalysisPage({ academyId }) {
+  const players = PLAYERS_DATA[academyId] || [];
+  const [selectedPlayer, setSelectedPlayer] = useState(null);
+  const [searchTerm, setSearchTerm] = useState("");
+
+  const filtered = players.filter(p => p.name.includes(searchTerm));
+  const player = selectedPlayer !== null ? players[selectedPlayer] : null;
+
+  const playerRadar = player ? TEST_TYPES.map(tt => {
+    const val = player.records[tt.id]?.[3] || 0;
+    let normalized;
+    switch(tt.id) {
+      case "sprint_20m": normalized = Math.max(0, 100 - (val - 2.5) * 30); break;
+      case "jump": normalized = Math.min(100, (val / 70) * 100); break;
+      case "yoyo": normalized = Math.min(100, (val / 45) * 100); break;
+      case "pass": normalized = Math.min(100, (val / 25) * 100); break;
+      case "dribble": normalized = Math.max(0, 100 - (val - 9) * 15); break;
+      case "shooting": normalized = Math.min(100, (val / 100) * 100); break;
+      case "agility": normalized = Math.max(0, 100 - (val - 7) * 15); break;
+      default: normalized = 50;
     }
-    setDownloading(null);
-  };
+    return { category: tt.category, value: Math.round(normalized), fullMark: 100 };
+  }) : [];
 
-  const handleSave = async (fileId) => {
-    const item = readyBlobs[fileId];
-    if (!item) return;
-    const { blob, name } = item;
-    // iOS/Android: Web Share API → 파일 앱 / 사진첩 저장
-    if (navigator.canShare && navigator.canShare({ files: [new File([blob], name, { type: blob.type })] })) {
-      try {
-        await navigator.share({ files: [new File([blob], name, { type: blob.type })], title: name });
-      } catch (e) {
-        if (e.name !== "AbortError") alert(`저장 실패: ${e.message}`);
-      }
-    } else {
-      // PC: 일반 다운로드
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url; a.download = name;
-      document.body.appendChild(a); a.click(); document.body.removeChild(a);
-      setTimeout(() => URL.revokeObjectURL(url), 3000);
-    }
-    setReadyBlobs(prev => { const n = { ...prev }; delete n[fileId]; return n; });
+  const playerGrowth = player ? TEST_TYPES.slice(0, 4).map(tt => ({
+    name: tt.name,
+    data: [1,2,3].map(r => ({ round: `${r}차시`, value: player.records[tt.id]?.[r] || 0 }))
+  })) : [];
+
+  // Percentile calculation
+  const getPercentile = (playerId, testId, round) => {
+    const allVals = players.map(p => p.records[testId]?.[round]).filter(v => v !== undefined);
+    const tt = TEST_TYPES.find(t => t.id === testId);
+    const playerVal = players[playerId]?.records[testId]?.[round];
+    if (!playerVal || allVals.length === 0) return 0;
+    const rank = tt.lower_better
+      ? allVals.filter(v => v < playerVal).length
+      : allVals.filter(v => v > playerVal).length;
+    return Math.round(((allVals.length - rank) / allVals.length) * 100);
   };
 
   return (
     <div>
       <div style={{ marginBottom: 28 }}>
-        <h2 style={{ fontSize: 22, fontWeight: 800, color: "#fff", margin: 0 }}>📁 결과 파일 다운로드</h2>
-        <p style={{ color: TEXT2, fontSize: 14, marginTop: 4 }}>업로드된 결과 PDF를 다운로드하세요</p>
+        <h2 style={{ fontSize: 22, fontWeight: 800, color: "#fff", margin: 0 }}>🔍 선수 분석</h2>
+        <p style={{ color: TEXT2, fontSize: 14, marginTop: 4 }}>선수별 상세 퍼포먼스를 분석하세요</p>
       </div>
 
-      {/* 차시 필터 */}
-      {rounds.length > 0 && (
-        <div style={{ display: "flex", gap: 12, marginBottom: 24, flexWrap: "wrap" }}>
-          <button
-            style={selectedRound === null ? S.btn : S.btnOut}
-            onClick={() => setSelectedRound(null)}
-          >전체</button>
-          {rounds.map(r => (
-            <button key={r} style={selectedRound === r ? S.btn : S.btnOut} onClick={() => setSelectedRound(r)}>
-              {r}차시
-            </button>
-          ))}
+      <div style={{ display: "grid", gridTemplateColumns: "280px 1fr", gap: 20 }}>
+        {/* Player List */}
+        <div style={{ ...styles.card, padding: 0, maxHeight: "calc(100vh - 180px)", overflow: "hidden", display: "flex", flexDirection: "column" }}>
+          <div style={{ padding: 16, borderBottom: `1px solid ${BORDER}` }}>
+            <input style={styles.input} placeholder="🔍 선수 검색..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+          </div>
+          <div style={{ overflow: "auto", flex: 1 }}>
+            {filtered.map((p, idx) => {
+              const origIdx = players.indexOf(p);
+              return (
+                <div
+                  key={idx}
+                  onClick={() => setSelectedPlayer(origIdx)}
+                  style={{
+                    padding: "14px 16px",
+                    cursor: "pointer",
+                    background: selectedPlayer === origIdx ? `${LIME}10` : "transparent",
+                    borderLeft: selectedPlayer === origIdx ? `3px solid ${LIME}` : "3px solid transparent",
+                    borderBottom: `1px solid ${BORDER}10`,
+                    transition: "all 0.1s ease",
+                  }}
+                >
+                  <div style={{ fontWeight: 600, color: selectedPlayer === origIdx ? "#fff" : TEXT, fontSize: 14 }}>{p.name}</div>
+                  <div style={{ fontSize: 12, color: TEXT2, marginTop: 2 }}>{p.age}세 · {p.position}</div>
+                </div>
+              );
+            })}
+          </div>
         </div>
-      )}
 
-      {/* 차시 카드 */}
-      {selectedRound === null && rounds.length > 0 && (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 16, marginBottom: 28 }}>
-          {rounds.map(r => {
-            const cnt = myFiles.filter(f => f.round === r).length;
-            return (
-              <div key={r} onClick={() => setSelectedRound(r)} style={{ ...S.card, cursor: "pointer", marginBottom: 0, border: `1px solid ${BORDER}`, transition: "all 0.15s" }}>
-                <div style={{ fontSize: 32, fontWeight: 900, color: "#fff" }}>{r}차시</div>
-                <div style={{ fontSize: 13, color: LIME, marginTop: 4 }}>📄 {cnt}개 파일</div>
+        {/* Player Detail */}
+        {player ? (
+          <div>
+            {/* Profile Header */}
+            <div style={{ ...styles.card, display: "flex", alignItems: "center", gap: 24 }}>
+              <div style={{ width: 80, height: 80, borderRadius: "50%", background: `linear-gradient(135deg, ${LIME}30, ${BLUE}30)`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 36, flexShrink: 0 }}>⚽</div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 24, fontWeight: 800, color: "#fff" }}>{player.name}</div>
+                <div style={{ display: "flex", gap: 12, marginTop: 8 }}>
+                  <span style={{ ...styles.badge, background: `${BLUE}20`, color: BLUE }}>{player.age}세</span>
+                  <span style={{ ...styles.badge, background: `${LIME}20`, color: LIME }}>{player.position}</span>
+                  <span style={{ ...styles.badge, background: `${PURPLE}20`, color: PURPLE }}>
+                    {ACADEMIES.find(a => a.id === academyId)?.name}
+                  </span>
+                </div>
               </div>
-            );
-          })}
-        </div>
-      )}
+            </div>
 
-      {/* 파일 목록 */}
-      <div style={S.card}>
-        <h3 style={{ margin: "0 0 16px", fontSize: 16, fontWeight: 700, color: "#fff" }}>
-          {selectedRound ? `${selectedRound}차시 파일` : "전체 파일"} ({filtered.length}개)
-        </h3>
-        {filtered.length === 0 ? (
-          <div style={{ textAlign: "center", padding: 60, color: TEXT2 }}>
-            <div style={{ fontSize: 56, marginBottom: 16 }}>📭</div>
-            <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 8 }}>업로드된 파일이 없습니다</div>
-            <div style={{ fontSize: 13 }}>관리자가 파일을 업로드하면 여기에 표시됩니다</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
+              {/* Radar */}
+              <div style={styles.card}>
+                <h3 style={{ margin: "0 0 16px", fontSize: 15, fontWeight: 700, color: "#fff" }}>🕸️ 능력치 분석 (3차시)</h3>
+                <ResponsiveContainer width="100%" height={260}>
+                  <RadarChart data={playerRadar}>
+                    <PolarGrid stroke={BORDER} />
+                    <PolarAngleAxis dataKey="category" tick={{ fill: TEXT2, fontSize: 11 }} />
+                    <PolarRadiusAxis angle={90} domain={[0, 100]} tick={false} />
+                    <Radar name="능력치" dataKey="value" stroke={LIME} fill={LIME} fillOpacity={0.25} strokeWidth={2} />
+                  </RadarChart>
+                </ResponsiveContainer>
+              </div>
+
+              {/* Percentile */}
+              <div style={styles.card}>
+                <h3 style={{ margin: "0 0 16px", fontSize: 15, fontWeight: 700, color: "#fff" }}>📊 팀 내 백분위 (3차시)</h3>
+                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                  {TEST_TYPES.map(tt => {
+                    const pct = getPercentile(selectedPlayer, tt.id, 3);
+                    return (
+                      <div key={tt.id}>
+                        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                          <span style={{ fontSize: 12, color: TEXT2 }}>{tt.icon} {tt.name}</span>
+                          <span style={{ fontSize: 12, fontWeight: 700, color: pct >= 80 ? LIME : pct >= 50 ? BLUE : RED }}>상위 {100 - pct}%</span>
+                        </div>
+                        <div style={{ height: 8, background: CARD2, borderRadius: 4, overflow: "hidden" }}>
+                          <div style={{ height: "100%", width: `${pct}%`, background: pct >= 80 ? LIME : pct >= 50 ? BLUE : RED, borderRadius: 4, transition: "width 0.5s ease" }} />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            {/* Test Records Table */}
+            <div style={styles.card}>
+              <h3 style={{ margin: "0 0 16px", fontSize: 15, fontWeight: 700, color: "#fff" }}>📋 차시별 기록</h3>
+              <table style={styles.table}>
+                <thead>
+                  <tr>
+                    <th style={styles.th}>테스트</th>
+                    <th style={{ ...styles.th, textAlign: "center" }}>1차시</th>
+                    <th style={{ ...styles.th, textAlign: "center" }}>2차시</th>
+                    <th style={{ ...styles.th, textAlign: "center" }}>3차시</th>
+                    <th style={{ ...styles.th, textAlign: "right" }}>변화</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {TEST_TYPES.map(tt => {
+                    const r1 = player.records[tt.id]?.[1];
+                    const r3 = player.records[tt.id]?.[3];
+                    const change = (r1 && r3) ? Math.round((r3 - r1) * 100) / 100 : 0;
+                    return (
+                      <tr key={tt.id}>
+                        <td style={styles.td}><span style={{ fontWeight: 500, color: "#fff" }}>{tt.icon} {tt.name}</span></td>
+                        <td style={{ ...styles.td, textAlign: "center" }}>{player.records[tt.id]?.[1] || "-"}{player.records[tt.id]?.[1] ? tt.unit : ""}</td>
+                        <td style={{ ...styles.td, textAlign: "center" }}>{player.records[tt.id]?.[2] || "-"}{player.records[tt.id]?.[2] ? tt.unit : ""}</td>
+                        <td style={{ ...styles.td, textAlign: "center", fontWeight: 600 }}>{player.records[tt.id]?.[3] || "-"}{player.records[tt.id]?.[3] ? tt.unit : ""}</td>
+                        <td style={{ ...styles.td, textAlign: "right" }}><ChangeIndicator value={change} unit={tt.unit} lowerBetter={tt.lower_better} /></td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </div>
         ) : (
-          <table style={S.table}>
-            <thead><tr>
-              <th style={S.th}>파일명</th>
-              <th style={S.th}>차시</th>
-              <th style={S.th}>크기</th>
-              <th style={S.th}>업로드 일시</th>
-              <th style={{ ...S.th, textAlign: "right" }}>다운로드</th>
-            </tr></thead>
-            <tbody>
-              {[...filtered].reverse().map(f => (
-                <tr key={f.id}>
-                  <td style={S.td}>
-                    <span style={{ marginRight: 8, fontSize: 18 }}>📕</span>
-                    <span style={{ fontWeight: 500, color: "#fff" }}>{f.file_name}</span>
-                  </td>
-                  <td style={S.td}>{f.year}년 {f.round}차시</td>
-                  <td style={S.td}>{fmt(f.file_size)}</td>
-                  <td style={S.td}>{f.uploaded_at}</td>
-                  <td style={{ ...S.td, textAlign: "right" }}>
-                    {readyBlobs[f.id] ? (
-                      <button
-                        style={{ ...S.btnSm, background: LIME, color: DARK }}
-                        onClick={() => handleSave(f.id)}
-                      >
-                        💾 저장하기
-                      </button>
-                    ) : (
-                      <button
-                        style={{ ...S.btnSm, opacity: downloading === f.id ? 0.6 : 1 }}
-                        onClick={() => handleDownload(f)}
-                        disabled={downloading === f.id}
-                      >
-                        {downloading === f.id ? "⏳ 준비중..." : "⬇️ 다운로드"}
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div style={{ ...styles.card, display: "flex", alignItems: "center", justifyContent: "center", minHeight: 400 }}>
+            <div style={{ textAlign: "center", color: TEXT2 }}>
+              <div style={{ fontSize: 64, marginBottom: 16 }}>👈</div>
+              <div style={{ fontSize: 16, fontWeight: 600 }}>왼쪽에서 선수를 선택하세요</div>
+              <div style={{ fontSize: 13, marginTop: 8 }}>선수별 상세 데이터를 확인할 수 있습니다</div>
+            </div>
+          </div>
         )}
       </div>
     </div>
   );
 }
 
-// ── 메인 앱 ────────────────────────────────────────────
+// Main App
 export default function App() {
-  const [user,     setUser]     = useState(null);
-  const [page,     setPage]     = useState("dashboard");
-  const [collapsed, setCollapsed] = useState(false);
-  const [meta,     setMeta]     = useState(null);
-  const [loading,  setLoading]  = useState(true);
-  const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
-
-  useEffect(() => {
-    const onResize = () => setIsMobile(window.innerWidth < 768);
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, []);
-
-  // 초기 데이터 로드 (클라우드)
-  const isFirstLoad = useRef(true);
-  useEffect(() => {
-    loadMeta().then(data => { setMeta(data); setLoading(false); });
-  }, []);
-
-  // meta 변경 시 클라우드 저장 (첫 로드는 저장 제외 - 빈 데이터 덮어쓰기 방지)
-  const saveTimer = useRef(null);
-  useEffect(() => {
-    if (!meta) return;
-    if (isFirstLoad.current) { isFirstLoad.current = false; return; } // 초기 로드 시 저장 안 함
-    clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(() => saveMeta(meta), 800);
-    return () => clearTimeout(saveTimer.current);
-  }, [meta]);
-
-  const handleUpload = (fileMeta) => {
-    setMeta(prev => ({ ...prev, resultFiles: [...prev.resultFiles, fileMeta] }));
-  };
-
-  const [syncMsg, setSyncMsg] = useState(""); // "", "saving", "saved", "loading", "loaded", "error:..."
-
-  const showSync = (msg, delay = 4000) => {
-    setSyncMsg(msg);
-    if (delay) setTimeout(() => setSyncMsg(""), delay);
-  };
-
-  // 강제 저장 (웹→클라우드)
-  const handleForceSync = async () => {
-    showSync("saving", 0);
-    try {
-      await saveToCloud(meta);
-      localStorage.setItem("fdl-meta", JSON.stringify(meta));
-      showSync("saved");
-    } catch (e) { showSync(`error:${e.message}`); }
-  };
-
-  // 강제 재로드 (클라우드→현재 기기)
-  const handleForceLoad = async () => {
-    showSync("loading", 0);
-    try {
-      const cloud = await loadFromCloud();
-      if (cloud) {
-        validateMeta(cloud);
-        localStorage.setItem("fdl-meta", JSON.stringify(cloud));
-        isFirstLoad.current = true;
-        setMeta(cloud);
-        showSync("loaded");
-      } else {
-        showSync("error:클라우드에 저장된 데이터가 없습니다");
-      }
-    } catch (e) { showSync(`error:${e.message}`); }
-  };
-
-  if (loading) return (
-    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: DARK, flexDirection: "column", gap: 16 }}>
-      <div style={{ width: 40, height: 40, background: LIME, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 900, color: DARK, fontSize: 16 }}>FDL</div>
-      <div style={{ color: TEXT2, fontSize: 14 }}>데이터 불러오는 중...</div>
-    </div>
-  );
+  const [user, setUser] = useState(null);
+  const [page, setPage] = useState("dashboard");
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [selectedAcademyView, setSelectedAcademyView] = useState(null);
 
   const isAdmin = user?.role === "admin";
+  const academyId = isAdmin ? (selectedAcademyView || 1) : user?.academy_id;
 
-  if (!user) return <LoginScreen users={meta.users} onLogin={setUser} />;
+  if (!user) return <LoginScreen onLogin={setUser} />;
 
-  const adminNav = [
-    { id: "dashboard",  icon: "📊", label: "대시보드" },
-    { id: "teams",      icon: "🏫", label: "팀 관리" },
-    { id: "dataentry",  icon: "✏️",  label: "수기 입력" },
-    { id: "upload",     icon: "📤", label: "파일 업로드" },
-    { id: "testtypes",  icon: "⚙️",  label: "종목 관리" },
-  ];
-  const teamNav = [
+  const navItems = [
     { id: "dashboard", icon: "📊", label: "대시보드" },
-    { id: "download",  icon: "📁", label: "결과 다운로드" },
+    { id: "rankings", icon: "🏅", label: "선수 랭킹" },
+    { id: "players", icon: "🔍", label: "선수 분석" },
+    { id: "results", icon: "📁", label: "결과지 다운로드" },
+    ...(isAdmin ? [
+      { id: "academies", icon: "🏫", label: "아카데미 관리" },
+      { id: "upload", icon: "📤", label: "데이터 업로드" },
+    ] : []),
   ];
-  const navItems = isAdmin ? adminNav : teamNav;
 
   return (
-    <MobileCtx.Provider value={isMobile}>
-    {/* 오류 토스트 */}
-    {syncMsg.startsWith("error") && (
-      <div style={{ position: "fixed", top: 16, left: "50%", transform: "translateX(-50%)", background: RED, color: "#fff", padding: "12px 20px", borderRadius: 10, fontSize: 13, fontWeight: 600, zIndex: 9999, maxWidth: "90vw", textAlign: "center", boxShadow: "0 4px 20px rgba(0,0,0,0.4)" }}>
-        ❌ {syncMsg.replace("error:", "")}
-      </div>
-    )}
-    <div style={S.app}>
-      {/* 사이드바 (데스크탑만) */}
-      {!isMobile && (
-        <div style={{ ...S.sidebar, ...(collapsed ? S.sidebarC : {}) }}>
-          <Logo collapsed={collapsed} />
-          <nav style={{ flex: 1, paddingTop: 12 }}>
-            {navItems.map(item => (
-              <NavItem key={item.id} icon={item.icon} label={item.label} active={page === item.id} onClick={() => setPage(item.id)} collapsed={collapsed} />
-            ))}
-          </nav>
-          <div style={{ padding: collapsed ? "16px 12px" : "16px 24px", borderTop: `1px solid ${BORDER}` }}>
-            {!collapsed && (
-              <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
-                <div style={{ width: 32, height: 32, borderRadius: "50%", background: `${LIME}20`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14 }}>
-                  {isAdmin ? "👑" : "👤"}
-                </div>
-                <div>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: "#fff" }}>{user.name}</div>
-                  <div style={{ fontSize: 11, color: TEXT2 }}>{isAdmin ? "관리자" : "팀 계정"}</div>
-                </div>
-              </div>
-            )}
-            <button style={{ ...S.btnGhost, width: "100%", textAlign: collapsed ? "center" : "left", color: RED, fontSize: 13 }} onClick={() => { setUser(null); setPage("dashboard"); }}>
-              {collapsed ? "🚪" : "🚪 로그아웃"}
-            </button>
-          </div>
-        </div>
-      )}
+    <div style={styles.app}>
+      {/* Sidebar */}
+      <div style={{ ...styles.sidebar, ...(sidebarCollapsed ? styles.sidebarCollapsed : {}) }}>
+        <Logo collapsed={sidebarCollapsed} />
 
-      {/* 메인 */}
-      <div style={{ ...S.main, ...(isMobile ? { marginLeft: 0, paddingBottom: 64 } : collapsed ? S.mainC : {}) }}>
-        {/* 탑바 */}
-        <div style={{ ...S.topBar, padding: isMobile ? "0 16px" : "0 32px" }}>
+        {isAdmin && !sidebarCollapsed && (
+          <div style={{ padding: "12px 16px", borderBottom: `1px solid ${BORDER}` }}>
+            <select
+              style={{ ...styles.select, width: "100%", fontSize: 12 }}
+              value={selectedAcademyView || 1}
+              onChange={e => setSelectedAcademyView(Number(e.target.value))}
+            >
+              {ACADEMIES.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+            </select>
+          </div>
+        )}
+
+        <nav style={{ flex: 1, paddingTop: 12 }}>
+          {navItems.map(item => (
+            <NavItem
+              key={item.id}
+              icon={item.icon}
+              label={item.label}
+              active={page === item.id}
+              onClick={() => setPage(item.id)}
+              collapsed={sidebarCollapsed}
+            />
+          ))}
+        </nav>
+
+        <div style={{ padding: sidebarCollapsed ? "16px 12px" : "16px 24px", borderTop: `1px solid ${BORDER}` }}>
+          {!sidebarCollapsed && (
+            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
+              <div style={{ width: 32, height: 32, borderRadius: "50%", background: `${LIME}20`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14 }}>
+                {isAdmin ? "👑" : "👤"}
+              </div>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: "#fff" }}>{user.name}</div>
+                <div style={{ fontSize: 11, color: TEXT2 }}>{isAdmin ? "관리자" : "아카데미"}</div>
+              </div>
+            </div>
+          )}
+          <button
+            style={{ ...styles.btnGhost, width: "100%", textAlign: sidebarCollapsed ? "center" : "left", color: RED, fontSize: 13 }}
+            onClick={() => { setUser(null); setPage("dashboard"); }}
+          >
+            {sidebarCollapsed ? "🚪" : "🚪 로그아웃"}
+          </button>
+        </div>
+      </div>
+
+      {/* Main */}
+      <div style={{ ...styles.main, ...(sidebarCollapsed ? styles.mainCollapsed : {}) }}>
+        {/* Top Bar */}
+        <div style={styles.topBar}>
           <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-            {!isMobile && (
-              <button style={{ ...S.btnGhost, fontSize: 18, padding: "4px 8px" }} onClick={() => setCollapsed(!collapsed)}>
-                {collapsed ? "☰" : "✕"}
-              </button>
-            )}
-            <h3 style={{ margin: 0, fontSize: isMobile ? 14 : 16, fontWeight: 700, color: "#fff" }}>
+            <button
+              style={{ ...styles.btnGhost, fontSize: 18, padding: "4px 8px" }}
+              onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+            >
+              {sidebarCollapsed ? "☰" : "✕"}
+            </button>
+            <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "#fff" }}>
               {navItems.find(n => n.id === page)?.icon} {navItems.find(n => n.id === page)?.label}
             </h3>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            {!isAdmin && (
-              <span style={{ ...S.badge, background: `${BLUE}15`, color: BLUE, fontSize: isMobile ? 11 : 12 }}>
-                {meta.academies.find(a => a.id === user.academy_id)?.name}
+          <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+            {isAdmin && (
+              <span style={{ ...styles.badge, background: `${LIME}15`, color: LIME }}>
+                현재: {ACADEMIES.find(a => a.id === academyId)?.name}
               </span>
             )}
-            <button
-              style={{ ...S.btnGhost, fontSize: 12, padding: "6px 10px", color: syncMsg.startsWith("error") ? RED : syncMsg === "saved" || syncMsg === "loaded" ? LIME : TEXT2, border: `1px solid ${BORDER}`, borderRadius: 8, maxWidth: isMobile ? 120 : 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
-              onClick={isAdmin ? handleForceSync : handleForceLoad}
-              disabled={syncMsg === "saving" || syncMsg === "loading"}
-              title={syncMsg.startsWith("error") ? syncMsg.replace("error:", "") : ""}
-            >
-              {syncMsg === "saving" ? "⏳ 저장중..." : syncMsg === "loading" ? "⏳ 로딩중..." : syncMsg === "saved" ? "✅ 저장됨" : syncMsg === "loaded" ? "✅ 불러옴" : syncMsg.startsWith("error") ? "❌ 오류" : isAdmin ? "☁️ 저장" : "🔄 새로고침"}
-            </button>
-            {!isMobile && <span style={{ fontSize: 13, color: TEXT2 }}>{new Date().getFullYear()}년</span>}
-            {isMobile && (
-              <button style={{ ...S.btnGhost, color: RED, fontSize: 13, padding: "6px 10px" }} onClick={() => { setUser(null); setPage("dashboard"); }}>
-                🚪
-              </button>
-            )}
+            <span style={{ fontSize: 13, color: TEXT2 }}>2025년</span>
           </div>
         </div>
 
-        {/* 콘텐츠 */}
-        <div style={{ ...S.content, padding: isMobile ? "16px" : "28px 32px" }}>
-          {page === "dashboard"  && <DashboardPage user={user} academies={meta.academies} resultFiles={meta.resultFiles} dashboards={meta.dashboards} testTypes={meta.testTypes ?? DEFAULT_TEST_TYPES} />}
-          {page === "teams"      && isAdmin && <TeamsPage meta={meta} onMetaChange={setMeta} />}
-          {page === "dataentry"  && isAdmin && <DataEntryPage meta={meta} onMetaChange={setMeta} />}
-          {page === "upload"     && isAdmin && <UploadPage meta={meta} onUpload={handleUpload} onDeleteFile={(id) => setMeta(prev => ({ ...prev, resultFiles: prev.resultFiles.filter(f => f.id !== id) }))} />}
-          {page === "testtypes"  && isAdmin && <TestTypesPage meta={meta} onMetaChange={setMeta} />}
-          {page === "download"   && !isAdmin && <DownloadPage user={user} meta={meta} />}
+        {/* Content */}
+        <div style={styles.content}>
+          {page === "dashboard" && <DashboardPage user={user} academyId={academyId} />}
+          {page === "rankings" && <RankingsPage academyId={academyId} />}
+          {page === "players" && <PlayerAnalysisPage academyId={academyId} />}
+          {page === "results" && <ResultsPage user={user} academyId={academyId} />}
+          {page === "academies" && isAdmin && <AcademyManagePage />}
+          {page === "upload" && isAdmin && <UploadPage />}
         </div>
       </div>
-
-      {/* 하단 탭바 (모바일만) */}
-      {isMobile && (
-        <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, height: 64, background: "#0D0D0D", borderTop: `1px solid ${BORDER}`, display: "flex", alignItems: "center", justifyContent: "space-around", zIndex: 100 }}>
-          {navItems.map(item => (
-            <button
-              key={item.id}
-              onClick={() => setPage(item.id)}
-              style={{ background: "transparent", border: "none", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 4, padding: "8px 12px", color: page === item.id ? LIME : TEXT2, flex: 1 }}
-            >
-              <span style={{ fontSize: 20 }}>{item.icon}</span>
-              <span style={{ fontSize: 10, fontWeight: page === item.id ? 700 : 400, whiteSpace: "nowrap" }}>{item.label}</span>
-            </button>
-          ))}
-        </div>
-      )}
     </div>
-    </MobileCtx.Provider>
   );
 }
