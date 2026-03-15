@@ -814,9 +814,16 @@ function PlayerAnalysisPage({ user, meta }) {
   };
 
   const radarData = p ? testTypes.map(tt => {
-    const lr    = latestRoundForPlayer(p, tt.id);
-    const score = lr ? normalizeVal(tt.id, p.records[tt.id][lr]) : null;
-    return { category: tt.category || tt.name, value: score ?? 0, fullMark: 100 };
+    const lr = latestRoundForPlayer(p, tt.id);
+    if (!lr) return { category: tt.category || tt.name, value: 0, rank: null, total: 0, fullMark: 100 };
+    const myVal = p.records?.[tt.id]?.[lr];
+    const myV = parseFloat(myVal);
+    const allVals = players.map(pl => parseFloat(pl.records?.[tt.id]?.[lr])).filter(v => !isNaN(v));
+    if (isNaN(myV) || allVals.length === 0) return { category: tt.category || tt.name, value: 0, rank: null, total: 0, fullMark: 100 };
+    const rank = tt.lower_better ? allVals.filter(v => v < myV).length + 1 : allVals.filter(v => v > myV).length + 1;
+    const total = allVals.length;
+    const value = Math.round((total - rank + 1) / total * 100);
+    return { category: tt.category || tt.name, value, rank, total, fullMark: 100 };
   }) : [];
 
   const thresholds = db?.percentileThresholds ?? {};
@@ -974,13 +981,22 @@ function PlayerAnalysisPage({ user, meta }) {
               {/* 레이더 + 차시별 변화 */}
               <div style={{ display: isMobile ? "block" : "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
                 <div style={S.card}>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: "#fff", marginBottom: 16 }}>🕸️ 능력치 레이더 차트</div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: "#fff", marginBottom: 4 }}>🕸️ 종목별 팀내 순위</div>
+                  <div style={{ fontSize: 11, color: TEXT2, marginBottom: 16 }}>1위에 가까울수록 외곽에 표시</div>
                   <ResponsiveContainer width="100%" height={280}>
                     <RadarChart data={radarData}>
                       <PolarGrid stroke={BORDER} />
                       <PolarAngleAxis dataKey="category" tick={{ fill: TEXT2, fontSize: 12 }} />
-                      <PolarRadiusAxis angle={90} domain={[0, 100]} tick={{ fill: TEXT2, fontSize: 10 }} />
+                      <PolarRadiusAxis angle={90} domain={[0, 100]} tick={false} />
                       <Radar name={p.name} dataKey="value" stroke={LIME} fill={LIME} fillOpacity={0.2} strokeWidth={2} />
+                      <Tooltip
+                        contentStyle={{ background: CARD2, border: `1px solid ${BORDER}`, borderRadius: 8, fontSize: 12 }}
+                        formatter={(val, name, props) => {
+                          const { rank, total } = props.payload;
+                          if (rank === null) return ["기록 없음", props.payload.category];
+                          return [`${rank}위 / ${total}명`, props.payload.category];
+                        }}
+                      />
                     </RadarChart>
                   </ResponsiveContainer>
                 </div>
