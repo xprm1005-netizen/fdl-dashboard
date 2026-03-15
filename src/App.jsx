@@ -493,10 +493,9 @@ function DashboardPage({ user, academies, resultFiles, dashboards, testTypes }) 
               const category = tt.category || tt.name;
               return (
                 <div key={tt.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", background: CARD2, borderRadius: 10, border: `1px solid ${hasData ? BORDER : BORDER}` }}>
-                  <span style={{ fontSize: 20, width: 28, textAlign: "center", flexShrink: 0 }}>{icon}</span>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 11, color: TEXT2, marginBottom: 2 }}>{tt.name}</div>
-                    <span style={{ fontSize: 10, background: `${LIME}18`, color: LIME, borderRadius: 4, padding: "1px 6px", fontWeight: 600 }}>{category}</span>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: "#fff", marginBottom: 2 }}>{icon} {category}</div>
+                    <div style={{ fontSize: 11, color: TEXT2 }}>{tt.name}</div>
                   </div>
                   <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
                     {hasData ? (
