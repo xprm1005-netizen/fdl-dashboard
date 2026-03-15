@@ -81,12 +81,14 @@ async function cloudDeleteFile(fileRef) {
 // ── 테스트 종목 기본값 ─────────────────────────────────
 const DEFAULT_TEST_TYPES = [
   { id: "sprint_20m", name: "20m 스프린트",    unit: "초",   lower_better: true,  category: "순발력", icon: "⚡" },
+  { id: "sprint_10m", name: "10m 스프린트",    unit: "초",   lower_better: true,  category: "가속력", icon: "💨" },
   { id: "jump",       name: "서전트 점프",      unit: "cm",   lower_better: false, category: "근력",   icon: "💪" },
   { id: "yoyo",       name: "Yoyo",             unit: "회",   lower_better: false, category: "지구력", icon: "🫀" },
   { id: "pass",       name: "패스",             unit: "회",   lower_better: false, category: "패스",   icon: "🎯" },
   { id: "dribble",    name: "드리블 슬라럼",    unit: "초",   lower_better: true,  category: "드리블", icon: "⚽" },
-  { id: "shooting",   name: "슈팅스피드",       unit: "km/h", lower_better: false, category: "슈팅",   icon: "🚀" },
+  { id: "shooting",   name: "슈팅",             unit: "km/h", lower_better: false, category: "슈팅스피드", icon: "🚀" },
   { id: "agility",    name: "일리노이 테스트",  unit: "초",   lower_better: true,  category: "민첩성", icon: "🏃" },
+  { id: "control",    name: "컨트롤",           unit: "초",   lower_better: true,  category: "시각반응", icon: "👁️" },
 ];
 
 // ── localStorage 메타데이터 ────────────────────────────
@@ -571,12 +573,14 @@ function DashboardPage({ user, academies, resultFiles, dashboards, testTypes }) 
           if (isNaN(v)) return 0;
           switch(testId) {
             case "sprint_20m": return Math.max(0, Math.min(100, Math.round((1 - (v - 3.0) / 1.5) * 100)));
+            case "sprint_10m": return Math.max(0, Math.min(100, Math.round((1 - (v - 1.7) / 0.8) * 100)));
             case "jump":       return Math.min(100, Math.round((v / 65) * 100));
             case "yoyo":       return Math.min(100, Math.round((v / 40) * 100));
             case "pass":       return Math.min(100, Math.round((v / 25) * 100));
             case "dribble":    return Math.max(0, Math.min(100, Math.round((1 - (v - 10) / 3.5) * 100)));
             case "shooting":   return Math.min(100, Math.round((v / 100) * 100));
             case "agility":    return Math.max(0, Math.min(100, Math.round((1 - (v - 8) / 4) * 100)));
+            case "control":    return Math.max(0, Math.min(100, Math.round((1 - (v - 20) / 15) * 100)));
             default: return 0;
           }
         };
@@ -826,12 +830,14 @@ function PlayerAnalysisPage({ user, meta }) {
     if (isNaN(v)) return null;
     switch(testId) {
       case "sprint_20m": return Math.max(0, Math.min(100, Math.round((1 - (v - 3.0) / 1.5) * 100)));
+      case "sprint_10m": return Math.max(0, Math.min(100, Math.round((1 - (v - 1.7) / 0.8) * 100)));
       case "jump":       return Math.min(100, Math.round((v / 65) * 100));
       case "yoyo":       return Math.min(100, Math.round((v / 40) * 100));
       case "pass":       return Math.min(100, Math.round((v / 25) * 100));
       case "dribble":    return Math.max(0, Math.min(100, Math.round((1 - (v - 10) / 3.5) * 100)));
       case "shooting":   return Math.min(100, Math.round((v / 100) * 100));
       case "agility":    return Math.max(0, Math.min(100, Math.round((1 - (v - 8) / 4) * 100)));
+      case "control":    return Math.max(0, Math.min(100, Math.round((1 - (v - 20) / 15) * 100)));
       default: return null;
     }
   };
