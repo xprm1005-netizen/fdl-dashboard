@@ -857,7 +857,7 @@ function PlayerAnalysisPage({ user, meta }) {
   }) : [];
 
   const thresholds = db?.percentileThresholds ?? {};
-  const PCT_LEVELS = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50];
+  const PCT_LEVELS = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100];
 
   const getThresholdPct = (testId, val, lowerBetter) => {
     const testThr = thresholds[testId];
@@ -874,10 +874,15 @@ function PlayerAnalysisPage({ user, meta }) {
 
   const percentiles = p ? testTypes.map(tt => {
     const lr = latestRoundForPlayer(p, tt.id);
-    if (!lr) return { tt, pct: null, raw: null };
+    if (!lr) return { tt, pct: null, raw: null, rank: null, total: 0 };
     const myVal = p.records?.[tt.id]?.[lr];
     const pct = getThresholdPct(tt.id, myVal, tt.lower_better);
-    return { tt, pct, raw: myVal };
+    const myV = parseFloat(myVal);
+    const allVals = players.map(pl => parseFloat(pl.records?.[tt.id]?.[lr])).filter(v => !isNaN(v));
+    const rank = !isNaN(myV) && allVals.length > 0
+      ? (tt.lower_better ? allVals.filter(v => v < myV).length + 1 : allVals.filter(v => v > myV).length + 1)
+      : null;
+    return { tt, pct, raw: myVal, rank, total: allVals.length };
   }) : [];
 
   const lineColors = [LIME, BLUE, PURPLE, ORANGE, "#FF6B6B", "#4ECDC4", "#FFE66D"];
@@ -946,37 +951,57 @@ function PlayerAnalysisPage({ user, meta }) {
                 </div>
               </div>
 
-              {/* 백분위 카드 */}
-              <div style={{ marginBottom: 24 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: "#fff" }}>📊 백분위 등급</div>
+              {/* 백분위 + 팀내 순위 게이지 */}
+              <div style={{ ...S.card, marginBottom: 24, padding: isMobile ? "16px" : "20px 24px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: "#fff" }}>📊 백분위 · 팀내 순위</div>
                   {!Object.keys(thresholds).length && (
                     <span style={{ fontSize: 11, color: TEXT2, background: CARD2, borderRadius: 6, padding: "3px 8px" }}>
                       ✏️ 수기 입력 → 📊 백분위 기준 탭에서 기준값을 설정하세요
                     </span>
                   )}
                 </div>
-                <div style={{ display: "grid", gridTemplateColumns: isMobile ? "repeat(2, 1fr)" : "repeat(4, 1fr)", gap: 10 }}>
-                  {percentiles.map(({ tt, pct, raw }) => {
+                <div style={{ display: "flex", flexDirection: "column" }}>
+                  {percentiles.map(({ tt, pct, raw, rank, total }, idx) => {
                     const hasThreshold = !!thresholds[tt.id] && Object.keys(thresholds[tt.id] ?? {}).length > 0;
-                    const color = pct === null ? TEXT2 : pct <= 10 ? LIME : pct <= 25 ? BLUE : pct <= 40 ? ORANGE : TEXT;
+                    const gaugeColor = pct === null ? TEXT2 : pct <= 10 ? LIME : pct <= 25 ? "#7FD400" : pct <= 50 ? BLUE : pct <= 75 ? ORANGE : RED;
+                    const gaugePct = pct !== null ? Math.max(4, 100 - pct) : 0;
                     return (
-                      <div key={tt.id} style={{ background: CARD2, borderRadius: 12, padding: "14px 16px", textAlign: "center", border: `1px solid ${pct !== null && pct <= 10 ? `${LIME}40` : BORDER}` }}>
-                        <div style={{ fontSize: 20, marginBottom: 4 }}>{tt.icon || "📌"}</div>
-                        <div style={{ fontSize: 11, color: TEXT2, marginBottom: 8 }}>{tt.category}</div>
-                        {!hasThreshold ? (
-                          <div style={{ fontSize: 13, color: TEXT2 }}>기준 미설정</div>
-                        ) : pct !== null ? (
-                          <>
-                            <div style={{ fontSize: 24, fontWeight: 900, color }}> 상위 {pct}%</div>
-                            <div style={{ fontSize: 11, color: TEXT2, marginTop: 4 }}>{raw}{tt.unit}</div>
-                          </>
-                        ) : (
-                          <>
-                            <div style={{ fontSize: 18, fontWeight: 700, color: TEXT2 }}>50% 이하</div>
-                            <div style={{ fontSize: 11, color: TEXT2, marginTop: 4 }}>{raw}{tt.unit}</div>
-                          </>
-                        )}
+                      <div key={tt.id} style={{ display: "flex", alignItems: "center", gap: isMobile ? 8 : 14, padding: "10px 0", borderBottom: idx < percentiles.length - 1 ? `1px solid ${BORDER}` : "none" }}>
+                        {/* 아이콘 + 종목 */}
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, width: isMobile ? 90 : 130, flexShrink: 0 }}>
+                          <span style={{ fontSize: 18 }}>{tt.icon}</span>
+                          <div>
+                            <div style={{ fontSize: isMobile ? 11 : 13, fontWeight: 600, color: "#fff", lineHeight: 1.2 }}>{tt.category}</div>
+                            {!isMobile && <div style={{ fontSize: 10, color: TEXT2 }}>{tt.name}</div>}
+                          </div>
+                        </div>
+                        {/* 팀내 순위 */}
+                        <div style={{ width: isMobile ? 52 : 70, textAlign: "center", flexShrink: 0 }}>
+                          {rank !== null ? (
+                            <>
+                              <div style={{ fontSize: isMobile ? 13 : 15, fontWeight: 800, color: rank <= 3 ? LIME : "#fff" }}>{rank}위</div>
+                              <div style={{ fontSize: 10, color: TEXT2 }}>{total}명 중</div>
+                            </>
+                          ) : <div style={{ fontSize: 11, color: TEXT2 }}>-</div>}
+                        </div>
+                        {/* 게이지 바 */}
+                        <div style={{ flex: 1 }}>
+                          <div style={{ background: "#222", borderRadius: 6, height: 10, overflow: "hidden", position: "relative" }}>
+                            <div style={{ width: `${gaugePct}%`, height: "100%", background: gaugeColor, borderRadius: 6, transition: "width 0.4s ease" }} />
+                          </div>
+                          {raw !== null && <div style={{ fontSize: 10, color: TEXT2, marginTop: 3 }}>{raw}{tt.unit}</div>}
+                        </div>
+                        {/* 상위 X% */}
+                        <div style={{ width: isMobile ? 60 : 76, textAlign: "right", flexShrink: 0 }}>
+                          {!hasThreshold ? (
+                            <span style={{ fontSize: 10, color: TEXT2 }}>미설정</span>
+                          ) : pct !== null ? (
+                            <span style={{ fontSize: isMobile ? 13 : 15, fontWeight: 900, color: gaugeColor }}>상위 {pct}%</span>
+                          ) : (
+                            <span style={{ fontSize: 11, color: TEXT2 }}>기준 초과</span>
+                          )}
+                        </div>
                       </div>
                     );
                   })}
@@ -1747,13 +1772,13 @@ function DataEntryPage({ meta, onMetaChange }) {
           <div style={{ marginBottom: 20 }}>
             <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: "#fff" }}>📊 백분위 기준값 설정</h3>
             <p style={{ margin: "6px 0 0", fontSize: 12, color: TEXT2 }}>
-              종목별로 상위 5%~50% 구간의 기준 기록을 입력하세요. 선수 분석 페이지에서 이 값을 기준으로 상위 %가 표시됩니다.
+              종목별로 상위 5%~100% 구간의 기준 기록을 입력하세요. 선수 분석 페이지에서 이 값을 기준으로 상위 %가 표시됩니다.
             </p>
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
             {testTypes.map(tt => {
               const thresholds = cur.percentileThresholds?.[tt.id] ?? {};
-              const levels = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50];
+              const levels = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100];
               return (
                 <div key={tt.id} style={{ ...S.card, padding: isMobile ? 16 : 20 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
