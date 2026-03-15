@@ -287,7 +287,7 @@ function LoginScreen({ onLogin }) {
         <div style={{ marginTop: 32, padding: 16, background: CARD2, borderRadius: 12, border: `1px solid ${BORDER}` }}>
           <div style={{ fontSize: 12, color: TEXT2, marginBottom: 8, fontWeight: 600 }}>테스트 계정</div>
           <div style={{ fontSize: 12, color: TEXT2, lineHeight: 1.8 }}>
-            <span style={{ color: LIME }}>관리자</span> admin@footballdatalab.com / admin123<br/>
+            <span style={{ color: LIME }}>관리자</span> admin@fdl.com / admin<br/>
             <span style={{ color: LIME }}>아카데미</span> ksa@academy.com / ksa123
           </div>
         </div>
@@ -298,6 +298,8 @@ function LoginScreen({ onLogin }) {
 
 // Dashboard Page
 function DashboardPage({ user, academyId }) {
+  const [selectedGrowthPlayer, setSelectedGrowthPlayer] = useState(0);
+
   const academy = ACADEMIES.find(a => a.id === academyId);
   const players = PLAYERS_DATA[academyId] || [];
   const tests = TESTS.filter(t => t.academy_id === academyId);
@@ -372,6 +374,62 @@ function DashboardPage({ user, academyId }) {
   const totalAcademies = isAdmin ? ACADEMIES.length : 1;
 
   const CHART_COLORS = [LIME, BLUE, PURPLE, ORANGE, "#FF6B6B", "#4ECDC4", "#FFE66D"];
+
+  // 정규화 함수 (0~100, 높을수록 좋음)
+  const normalizeVal = (testId, val) => {
+    switch(testId) {
+      case "sprint_20m": return Math.max(0, Math.min(100, Math.round((1 - (val - 3.0) / 1.5) * 100)));
+      case "jump":       return Math.min(100, Math.round((val / 65) * 100));
+      case "yoyo":       return Math.min(100, Math.round((val / 40) * 100));
+      case "pass":       return Math.min(100, Math.round((val / 25) * 100));
+      case "dribble":    return Math.max(0, Math.min(100, Math.round((1 - (val - 10) / 3.5) * 100)));
+      case "shooting":   return Math.min(100, Math.round((val / 100) * 100));
+      case "agility":    return Math.max(0, Math.min(100, Math.round((1 - (val - 8) / 4) * 100)));
+      default: return 50;
+    }
+  };
+
+  const heatColor = (score) => {
+    if (score >= 80) return "#C8FF00";
+    if (score >= 60) return "#7FD400";
+    if (score >= 40) return "#FFD700";
+    if (score >= 20) return "#FF9F43";
+    return "#FF4D4D";
+  };
+
+  // 히트맵: 평균 점수 상위 12명
+  const heatmapData = players
+    .map(p => {
+      const scores = TEST_TYPES.map(tt => {
+        const val = p.records[tt.id]?.[latestRound];
+        return val !== undefined ? normalizeVal(tt.id, val) : 0;
+      });
+      return { ...p, scores, avg: scores.reduce((a, b) => a + b, 0) / scores.length };
+    })
+    .sort((a, b) => b.avg - a.avg)
+    .slice(0, 12);
+
+  // 차시별 평균 비교 (정규화)
+  const roundCompareData = TEST_TYPES.map(tt => {
+    const entry = { name: tt.category, icon: tt.icon };
+    for (let r = 1; r <= 3; r++) {
+      const vals = players.map(p => p.records[tt.id]?.[r]).filter(v => v !== undefined);
+      const avg = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0;
+      entry[`r${r}`] = Math.round(normalizeVal(tt.id, avg));
+    }
+    return entry;
+  });
+
+  // 선수별 성장 추이
+  const growthPlayer = players[selectedGrowthPlayer];
+  const playerGrowthData = growthPlayer ? [1, 2, 3].map(r => {
+    const entry = { round: `${r}차시` };
+    TEST_TYPES.forEach(tt => {
+      const val = growthPlayer.records[tt.id]?.[r];
+      entry[tt.name] = val !== undefined ? normalizeVal(tt.id, val) : null;
+    });
+    return entry;
+  }) : [];
 
   return (
     <div>
@@ -515,6 +573,147 @@ function DashboardPage({ user, academyId }) {
             ))}
           </LineChart>
         </ResponsiveContainer>
+      </div>
+
+      {/* 차시별 평균 비교 */}
+      <div style={styles.card}>
+        <h3 style={{ margin: "0 0 4px", fontSize: 16, fontWeight: 700, color: "#fff" }}>📊 차시별 팀 평균 비교</h3>
+        <p style={{ margin: "0 0 20px", fontSize: 12, color: TEXT2 }}>각 종목별 1→3차시 팀 평균 점수 변화 (100점 기준 정규화)</p>
+        <ResponsiveContainer width="100%" height={280}>
+          <BarChart data={roundCompareData} barCategoryGap="30%">
+            <CartesianGrid strokeDasharray="3 3" stroke={BORDER} />
+            <XAxis
+              dataKey="icon"
+              tick={{ fill: TEXT2, fontSize: 18 }}
+              axisLine={{ stroke: BORDER }}
+              tickLine={false}
+            />
+            <YAxis domain={[0, 100]} tick={{ fill: TEXT2, fontSize: 11 }} axisLine={{ stroke: BORDER }} unit="점" />
+            <Tooltip
+              contentStyle={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 8, color: TEXT }}
+              formatter={(val, name) => [`${val}점`, name]}
+              labelFormatter={(label) => {
+                const item = roundCompareData.find(d => d.icon === label);
+                return `${label} ${item?.name ?? ""}`;
+              }}
+            />
+            <Legend wrapperStyle={{ fontSize: 12, color: TEXT2, paddingTop: 8 }} />
+            <Bar dataKey="r1" name="1차시" fill={BLUE} radius={[4, 4, 0, 0]} barSize={18} />
+            <Bar dataKey="r2" name="2차시" fill={PURPLE} radius={[4, 4, 0, 0]} barSize={18} />
+            <Bar dataKey="r3" name="3차시" fill={LIME} radius={[4, 4, 0, 0]} barSize={18} />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+
+      {/* 선수별 성장 추이 */}
+      <div style={styles.card}>
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 20, gap: 16, flexWrap: "wrap" }}>
+          <div>
+            <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "#fff" }}>📈 선수별 성장 추이</h3>
+            <p style={{ margin: "4px 0 0", fontSize: 12, color: TEXT2 }}>차시별 종합 능력치 변화 (100점 기준 정규화)</p>
+          </div>
+          <select
+            style={styles.select}
+            value={selectedGrowthPlayer}
+            onChange={e => setSelectedGrowthPlayer(Number(e.target.value))}
+          >
+            {players.map((p, i) => (
+              <option key={i} value={i}>{p.name} ({p.position})</option>
+            ))}
+          </select>
+        </div>
+        {growthPlayer && (
+          <div style={{ display: "flex", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
+            <span style={{ ...styles.badge, background: `${BLUE}20`, color: BLUE }}>{growthPlayer.age}세</span>
+            <span style={{ ...styles.badge, background: `${LIME}20`, color: LIME }}>{growthPlayer.position}</span>
+          </div>
+        )}
+        <ResponsiveContainer width="100%" height={300}>
+          <LineChart data={playerGrowthData}>
+            <CartesianGrid strokeDasharray="3 3" stroke={BORDER} />
+            <XAxis dataKey="round" tick={{ fill: TEXT2, fontSize: 12 }} axisLine={{ stroke: BORDER }} />
+            <YAxis domain={[0, 100]} tick={{ fill: TEXT2, fontSize: 11 }} axisLine={{ stroke: BORDER }} unit="점" />
+            <Tooltip
+              contentStyle={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 8, color: TEXT }}
+              formatter={(val) => val !== null ? [`${val}점`] : ["-"]}
+            />
+            <Legend wrapperStyle={{ fontSize: 12, color: TEXT2 }} />
+            {TEST_TYPES.map((tt, i) => (
+              <Line
+                key={tt.id}
+                type="monotone"
+                dataKey={tt.name}
+                stroke={CHART_COLORS[i]}
+                strokeWidth={2}
+                dot={{ fill: CHART_COLORS[i], r: 4 }}
+                connectNulls
+              />
+            ))}
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+
+      {/* 히트맵 */}
+      <div style={styles.card}>
+        <h3 style={{ margin: "0 0 4px", fontSize: 16, fontWeight: 700, color: "#fff" }}>🌡️ 선수 퍼포먼스 히트맵</h3>
+        <p style={{ margin: "0 0 16px", fontSize: 12, color: TEXT2 }}>종합 점수 상위 12명 · {latestRound}차시 기준 · 색상이 밝을수록 높은 성과</p>
+        {/* 범례 */}
+        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 16, fontSize: 11, color: TEXT2 }}>
+          <span>낮음</span>
+          {["#FF4D4D", "#FF9F43", "#FFD700", "#7FD400", "#C8FF00"].map((c, i) => (
+            <div key={i} style={{ width: 24, height: 14, borderRadius: 3, background: c }} />
+          ))}
+          <span>높음</span>
+        </div>
+        <div style={{ overflowX: "auto" }}>
+          <div style={{ minWidth: 580 }}>
+            {/* 헤더 */}
+            <div style={{ display: "grid", gridTemplateColumns: "130px repeat(7, 1fr)", gap: 3, marginBottom: 3 }}>
+              <div />
+              {TEST_TYPES.map(tt => (
+                <div key={tt.id} style={{ textAlign: "center", fontSize: 11, color: TEXT2, padding: "4px 0" }}>
+                  <div style={{ fontSize: 18 }}>{tt.icon}</div>
+                  <div style={{ marginTop: 2 }}>{tt.category}</div>
+                </div>
+              ))}
+            </div>
+            {/* 데이터 행 */}
+            {heatmapData.map((p, rowIdx) => (
+              <div key={rowIdx} style={{ display: "grid", gridTemplateColumns: "130px repeat(7, 1fr)", gap: 3, marginBottom: 3 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, paddingRight: 8 }}>
+                  <span style={{ color: rowIdx < 3 ? "#FFD700" : TEXT2, fontSize: 11, fontWeight: 700, minWidth: 18, textAlign: "right" }}>
+                    {rowIdx === 0 ? "🥇" : rowIdx === 1 ? "🥈" : rowIdx === 2 ? "🥉" : `${rowIdx + 1}`}
+                  </span>
+                  <span style={{ fontSize: 12, color: TEXT, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</span>
+                </div>
+                {p.scores.map((score, colIdx) => {
+                  const tt = TEST_TYPES[colIdx];
+                  const rawVal = p.records[tt.id]?.[latestRound];
+                  return (
+                    <div
+                      key={colIdx}
+                      title={`${p.name} · ${tt.name}: ${rawVal ?? "-"}${tt.unit} (${score}점)`}
+                      style={{
+                        height: 36,
+                        borderRadius: 6,
+                        background: heatColor(score),
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        fontSize: 11,
+                        fontWeight: 700,
+                        color: score >= 40 ? "#0A0A0A" : "#fff",
+                        cursor: "default",
+                      }}
+                    >
+                      {score}
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
 
       {/* Recent Tests */}
