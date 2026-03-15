@@ -3,7 +3,7 @@ import { useState, useEffect, useRef, createContext, useContext } from "react";
 const MobileCtx = createContext(false);
 import {
   RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Cell,
+  BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Cell,
   ResponsiveContainer,
 } from "recharts";
 
@@ -114,6 +114,10 @@ function validateMeta(parsed) {
   if (!parsed.resultFiles) parsed.resultFiles = [];
   if (!parsed.dashboards)  parsed.dashboards  = {};
   if (!parsed.testTypes)   parsed.testTypes   = DEFAULT_TEST_TYPES;
+  // ensure each dashboard has a players array
+  Object.values(parsed.dashboards).forEach(db => {
+    if (db && !db.players) db.players = [];
+  });
 }
 
 async function loadFromCloud() {
@@ -284,6 +288,7 @@ function defaultDashboard(testTypes = DEFAULT_TEST_TYPES) {
     topPerformers,
     radarData,
     rankings,
+    players: [],
   };
 }
 
@@ -297,6 +302,8 @@ function DashboardPage({ user, academies, resultFiles, dashboards, testTypes }) 
 
   // Hooks must always be called before any early returns
   const [selectedRankTest, setSelectedRankTest] = useState(testTypes[0]?.id ?? "");
+  const [selectedAnalysisPlayer, setSelectedAnalysisPlayer] = useState(0);
+  const [rankingRound, setRankingRound] = useState(1);
   const MEDALS = ["🥇", "🥈", "🥉"];
 
   // ── 관리자 뷰 ──
@@ -553,6 +560,244 @@ function DashboardPage({ user, academies, resultFiles, dashboards, testTypes }) 
           </div>
         )}
       </div>
+
+      {/* 선수 전체 랭킹 테이블 */}
+      {(() => {
+        const players = db.players ?? [];
+        if (players.length === 0) return null;
+        const availableRounds = [1, 2, 3].filter(r =>
+          players.some(p => p.records?.[selectedRankTest]?.[r] !== undefined && p.records?.[selectedRankTest]?.[r] !== "")
+        );
+        if (availableRounds.length === 0) return null;
+        const safeRound = availableRounds.includes(rankingRound) ? rankingRound : availableRounds[availableRounds.length - 1];
+        const currentTTr = testTypes.find(t => t.id === selectedRankTest);
+        const ranked = players
+          .filter(p => p.records?.[selectedRankTest]?.[safeRound] !== undefined && p.records?.[selectedRankTest]?.[safeRound] !== "")
+          .map(p => ({ ...p, val: parseFloat(p.records[selectedRankTest][safeRound]) }))
+          .filter(p => !isNaN(p.val))
+          .sort((a, b) => currentTTr?.lower_better ? a.val - b.val : b.val - a.val);
+
+        // 1위 성장 추이 (across rounds)
+        const topPlayer = ranked[0];
+        const growthData = topPlayer ? [1, 2, 3].map(r => {
+          const v = parseFloat(topPlayer.records?.[selectedRankTest]?.[r]);
+          return { round: `${r}차시`, value: isNaN(v) ? null : v };
+        }).filter(d => d.value !== null) : [];
+
+        return (
+          <div style={S.card}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20, flexWrap: "wrap", gap: 10 }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "#fff" }}>📋 선수 전체 랭킹</h3>
+                <p style={{ margin: "4px 0 0", fontSize: 12, color: TEXT2 }}>종목별 전체 순위 및 1위 성장 추이</p>
+              </div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <div style={{ display: "flex", gap: 4 }}>
+                  {availableRounds.map(r => (
+                    <button key={r} onClick={() => setRankingRound(r)} style={{
+                      background: safeRound === r ? LIME : CARD2, color: safeRound === r ? DARK : TEXT2,
+                      border: `1px solid ${safeRound === r ? LIME : BORDER}`, borderRadius: 8,
+                      padding: "6px 14px", fontWeight: 700, cursor: "pointer", fontSize: 13,
+                    }}>{r}차시</button>
+                  ))}
+                </div>
+                <select style={{ ...S.select, fontSize: 13 }} value={selectedRankTest} onChange={e => setSelectedRankTest(e.target.value)}>
+                  {testTypes.map(tt => <option key={tt.id} value={tt.id}>{tt.icon} {tt.name}</option>)}
+                </select>
+              </div>
+            </div>
+
+            <div style={{ display: isMobile ? "block" : "grid", gridTemplateColumns: "1fr 1fr", gap: 24 }}>
+              {/* 랭킹 테이블 */}
+              <div>
+                {ranked.length === 0 ? (
+                  <div style={{ textAlign: "center", padding: 32, color: TEXT2, fontSize: 13 }}>데이터가 없습니다</div>
+                ) : (
+                  <table style={S.table}>
+                    <thead><tr>
+                      <th style={{ ...S.th, width: 40 }}>순위</th>
+                      <th style={S.th}>선수명</th>
+                      {!isMobile && <th style={{ ...S.th, width: 60 }}>나이</th>}
+                      <th style={{ ...S.th, textAlign: "right" }}>기록</th>
+                    </tr></thead>
+                    <tbody>
+                      {ranked.map((p, i) => {
+                        const medalColors = ["#FFD700", "#C0C0C0", "#CD7F32"];
+                        return (
+                          <tr key={i}>
+                            <td style={{ ...S.td, fontWeight: 800, color: i < 3 ? medalColors[i] : TEXT2, textAlign: "center" }}>
+                              {i < 3 ? MEDALS[i] : i + 1}
+                            </td>
+                            <td style={{ ...S.td, fontWeight: i === 0 ? 700 : 400, color: i === 0 ? "#fff" : TEXT }}>
+                              {p.name}
+                            </td>
+                            {!isMobile && <td style={{ ...S.td, color: TEXT2 }}>{p.age ? `${p.age}세` : "-"}</td>}
+                            <td style={{ ...S.td, textAlign: "right", fontWeight: 700, color: i === 0 ? LIME : TEXT }}>
+                              {p.val}{currentTTr?.unit}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+
+              {/* 1위 성장 추이 */}
+              {growthData.length >= 2 && topPlayer && (
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: "#fff", marginBottom: 12 }}>
+                    {MEDALS[0]} {topPlayer.name} 성장 추이
+                  </div>
+                  <ResponsiveContainer width="100%" height={200}>
+                    <LineChart data={growthData} margin={{ top: 4, right: 16, left: -10, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke={BORDER} />
+                      <XAxis dataKey="round" tick={{ fill: TEXT2, fontSize: 12 }} />
+                      <YAxis tick={{ fill: TEXT2, fontSize: 11 }} />
+                      <Tooltip contentStyle={{ background: CARD2, border: `1px solid ${BORDER}`, borderRadius: 8, fontSize: 13 }}
+                        formatter={v => [`${v}${currentTTr?.unit}`, currentTTr?.name]} />
+                      <Line type="monotone" dataKey="value" stroke={LIME} strokeWidth={2.5} dot={{ fill: LIME, r: 5 }} activeDot={{ r: 7 }} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* 선수 분석 */}
+      {(() => {
+        const players = db.players ?? [];
+        if (players.length === 0) return null;
+        const normalizeVal = (testId, val) => {
+          const v = parseFloat(val);
+          if (isNaN(v)) return null;
+          switch(testId) {
+            case "sprint_20m": return Math.max(0, Math.min(100, Math.round((1 - (v - 3.0) / 1.5) * 100)));
+            case "jump":       return Math.min(100, Math.round((v / 65) * 100));
+            case "yoyo":       return Math.min(100, Math.round((v / 40) * 100));
+            case "pass":       return Math.min(100, Math.round((v / 25) * 100));
+            case "dribble":    return Math.max(0, Math.min(100, Math.round((1 - (v - 10) / 3.5) * 100)));
+            case "shooting":   return Math.min(100, Math.round((v / 100) * 100));
+            case "agility":    return Math.max(0, Math.min(100, Math.round((1 - (v - 8) / 4) * 100)));
+            default: return null;
+          }
+        };
+        const safeIdx = Math.min(selectedAnalysisPlayer, players.length - 1);
+        const p = players[safeIdx];
+        if (!p) return null;
+
+        // 최신 라운드 찾기
+        const latestRoundForPlayer = (testId) => {
+          const rec = p.records?.[testId] ?? {};
+          const rounds = Object.keys(rec).map(Number).filter(r => rec[r] !== "");
+          return rounds.length ? Math.max(...rounds) : null;
+        };
+
+        // 레이더 데이터
+        const radarData = testTypes.map(tt => {
+          const lr = latestRoundForPlayer(tt.id);
+          const score = lr ? normalizeVal(tt.id, p.records[tt.id][lr]) : null;
+          return { category: tt.category || tt.name, value: score ?? 0, fullMark: 100 };
+        });
+
+        // 퍼센타일: 각 종목별로 이 선수가 몇 %에 속하는지
+        const percentiles = testTypes.map(tt => {
+          const lr = latestRoundForPlayer(tt.id);
+          if (!lr) return { tt, rank: null, total: 0, pct: null };
+          const myVal = parseFloat(p.records?.[tt.id]?.[lr]);
+          if (isNaN(myVal)) return { tt, rank: null, total: 0, pct: null };
+          const allVals = players.map(pl => parseFloat(pl.records?.[tt.id]?.[lr])).filter(v => !isNaN(v));
+          if (allVals.length === 0) return { tt, rank: null, total: 0, pct: null };
+          const rank = tt.lower_better
+            ? allVals.filter(v => v < myVal).length + 1
+            : allVals.filter(v => v > myVal).length + 1;
+          const pct = Math.round((1 - (rank - 1) / allVals.length) * 100);
+          return { tt, rank, total: allVals.length, pct };
+        });
+
+        // 차시별 변화 (LineChart: rounds on X, normalized score on Y, one line per test)
+        const roundChangeData = [1, 2, 3].map(r => {
+          const entry = { round: `${r}차시` };
+          testTypes.forEach(tt => {
+            const raw = p.records?.[tt.id]?.[r];
+            if (raw !== undefined && raw !== "") {
+              const s = normalizeVal(tt.id, raw);
+              if (s !== null) entry[tt.id] = s;
+            }
+          });
+          return entry;
+        }).filter(d => Object.keys(d).length > 1);
+        const lineColors = [LIME, BLUE, PURPLE, ORANGE, "#FF6B6B", "#4ECDC4", "#FFE66D"];
+
+        return (
+          <div style={S.card}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20, flexWrap: "wrap", gap: 10 }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "#fff" }}>🔍 선수 분석</h3>
+                <p style={{ margin: "4px 0 0", fontSize: 12, color: TEXT2 }}>개별 선수 능력치 레이더, 팀 내 백분위, 차시별 변화</p>
+              </div>
+              <select style={{ ...S.select, fontSize: 13 }} value={safeIdx} onChange={e => setSelectedAnalysisPlayer(Number(e.target.value))}>
+                {players.map((pl, i) => <option key={i} value={i}>{pl.name || `선수 ${i+1}`}</option>)}
+              </select>
+            </div>
+
+            {/* 백분위 카드 */}
+            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "repeat(2, 1fr)" : "repeat(4, 1fr)", gap: 10, marginBottom: 24 }}>
+              {percentiles.filter(d => d.pct !== null).slice(0, 8).map(({ tt, rank, total, pct }) => (
+                <div key={tt.id} style={{ background: CARD2, borderRadius: 10, padding: "12px 14px", textAlign: "center" }}>
+                  <div style={{ fontSize: 18, marginBottom: 4 }}>{tt.icon || "📌"}</div>
+                  <div style={{ fontSize: 11, color: TEXT2, marginBottom: 6 }}>{tt.name}</div>
+                  <div style={{ fontSize: 22, fontWeight: 900, color: pct >= 80 ? LIME : pct >= 50 ? BLUE : ORANGE }}>
+                    상위 {100 - pct + 1}%
+                  </div>
+                  <div style={{ fontSize: 11, color: TEXT2, marginTop: 2 }}>{rank}위 / {total}명</div>
+                </div>
+              ))}
+            </div>
+
+            <div style={{ display: isMobile ? "block" : "grid", gridTemplateColumns: "1fr 1fr", gap: 24 }}>
+              {/* 레이더 차트 */}
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: "#fff", marginBottom: 12 }}>🕸️ 능력치 레이더</div>
+                <ResponsiveContainer width="100%" height={260}>
+                  <RadarChart data={radarData}>
+                    <PolarGrid stroke={BORDER} />
+                    <PolarAngleAxis dataKey="category" tick={{ fill: TEXT2, fontSize: 12 }} />
+                    <PolarRadiusAxis angle={90} domain={[0, 100]} tick={{ fill: TEXT2, fontSize: 10 }} />
+                    <Radar name={p.name} dataKey="value" stroke={LIME} fill={LIME} fillOpacity={0.2} strokeWidth={2} />
+                  </RadarChart>
+                </ResponsiveContainer>
+              </div>
+
+              {/* 차시별 성장 추이 */}
+              {roundChangeData.length >= 2 && (
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: "#fff", marginBottom: 12 }}>📈 차시별 성과 지수 변화</div>
+                  <ResponsiveContainer width="100%" height={260}>
+                    <LineChart data={roundChangeData} margin={{ top: 4, right: 16, left: -10, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke={BORDER} />
+                      <XAxis dataKey="round" tick={{ fill: TEXT2, fontSize: 12 }} />
+                      <YAxis domain={[0, 100]} tick={{ fill: TEXT2, fontSize: 11 }} />
+                      <Tooltip contentStyle={{ background: CARD2, border: `1px solid ${BORDER}`, borderRadius: 8, fontSize: 12 }}
+                        formatter={(v, name) => {
+                          const tt = testTypes.find(t => t.id === name);
+                          return [`${v}점`, tt ? `${tt.icon} ${tt.name}` : name];
+                        }} />
+                      <Legend formatter={name => { const tt = testTypes.find(t => t.id === name); return tt ? `${tt.icon} ${tt.category}` : name; }} wrapperStyle={{ fontSize: 11 }} />
+                      {testTypes.map((tt, i) => {
+                        const hasData = roundChangeData.some(d => d[tt.id] !== undefined);
+                        return hasData ? <Line key={tt.id} type="monotone" dataKey={tt.id} stroke={lineColors[i % lineColors.length]} strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 6 }} /> : null;
+                      })}
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* 종목별 성과 지수 바차트 */}
       {(() => {
@@ -973,6 +1218,7 @@ const TABS = [
   { id: "top",     label: "🏆 최고 기록" },
   { id: "radar",   label: "🕸️ 팀 능력치" },
   { id: "ranking", label: "🏅 선수 랭킹" },
+  { id: "players", label: "👤 선수 기록" },
 ];
 
 function DataEntryPage({ meta, onMetaChange }) {
@@ -994,6 +1240,7 @@ function DataEntryPage({ meta, onMetaChange }) {
       if (!saved.topPerformers[tt.id]) saved.topPerformers[tt.id] = { name: "", value: "" };
       if (!saved.rankings[tt.id])      saved.rankings[tt.id]      = [];
     });
+    if (!saved.players) saved.players = [];
     return saved;
   })();
   const cur = draft ?? db;
@@ -1041,6 +1288,28 @@ function DataEntryPage({ meta, onMetaChange }) {
     const rows = JSON.parse(JSON.stringify(cur.rankings[rankTest] ?? []));
     rows[i] = { ...rows[i], [field]: val };
     update(["rankings", rankTest], rows);
+  };
+
+  // 선수 기록 관련 helpers
+  const addPlayer = () => {
+    const newP = { id: Date.now(), name: "", age: "", records: {} };
+    testTypes.forEach(tt => { newP.records[tt.id] = {}; });
+    update(["players"], [...(cur.players ?? []), newP]);
+  };
+  const removePlayer = (idx) => {
+    update(["players"], (cur.players ?? []).filter((_, i) => i !== idx));
+  };
+  const setPlayerField = (idx, field, val) => {
+    const ps = JSON.parse(JSON.stringify(cur.players ?? []));
+    ps[idx] = { ...ps[idx], [field]: val };
+    update(["players"], ps);
+  };
+  const setPlayerRecord = (idx, testId, round, val) => {
+    const ps = JSON.parse(JSON.stringify(cur.players ?? []));
+    if (!ps[idx].records) ps[idx].records = {};
+    if (!ps[idx].records[testId]) ps[idx].records[testId] = {};
+    ps[idx].records[testId][round] = val;
+    update(["players"], ps);
   };
 
   const inStyle = {
@@ -1246,6 +1515,72 @@ function DataEntryPage({ meta, onMetaChange }) {
             </table>
           )}
           <p style={{ fontSize: 12, color: TEXT2, marginTop: 12 }}>입력 순서가 랭킹 순서가 됩니다. 행을 드래그로 재정렬하려면 순서에 맞게 입력하세요.</p>
+        </div>
+      )}
+
+      {/* ── 탭: 선수 기록 ── */}
+      {tab === "players" && (
+        <div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+            <div>
+              <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: "#fff" }}>선수별 차시 기록 입력</h3>
+              <p style={{ margin: "4px 0 0", fontSize: 12, color: TEXT2 }}>각 선수의 차시별 기록을 입력하면 랭킹·분석 탭에 자동 반영됩니다</p>
+            </div>
+            <button style={S.btnSm} onClick={addPlayer}>＋ 선수 추가</button>
+          </div>
+          {(cur.players ?? []).length === 0 ? (
+            <div style={{ ...S.card, textAlign: "center", padding: 60 }}>
+              <div style={{ fontSize: 48, marginBottom: 12 }}>👤</div>
+              <div style={{ color: TEXT2, fontSize: 14 }}>선수 추가 버튼으로 선수를 등록하세요</div>
+            </div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+              {(cur.players ?? []).map((p, pIdx) => (
+                <div key={p.id ?? pIdx} style={{ ...S.card, padding: isMobile ? 16 : 20 }}>
+                  {/* 선수 헤더 */}
+                  <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
+                    <div style={{ width: 32, height: 32, background: LIME, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, color: DARK, fontSize: 13, flexShrink: 0 }}>
+                      {pIdx + 1}
+                    </div>
+                    <input style={{ ...smIn(), width: 140 }} placeholder="선수 이름 *" value={p.name} onChange={e => setPlayerField(pIdx, "name", e.target.value)} />
+                    <input style={{ ...smIn(), width: 80 }} placeholder="나이" value={p.age ?? ""} onChange={e => setPlayerField(pIdx, "age", e.target.value)} />
+                    <button style={{ ...S.btnDanger, marginLeft: "auto", border: "none", padding: "6px 10px" }} onClick={() => removePlayer(pIdx)}>🗑 삭제</button>
+                  </div>
+                  {/* 기록 입력 테이블 */}
+                  <div style={{ overflowX: "auto" }}>
+                    <table style={{ ...S.table, minWidth: 500 }}>
+                      <thead>
+                        <tr>
+                          <th style={{ ...S.th, minWidth: 120 }}>종목</th>
+                          {[1, 2, 3].map(r => <th key={r} style={{ ...S.th, textAlign: "center" }}>{r}차시</th>)}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {testTypes.map(tt => (
+                          <tr key={tt.id}>
+                            <td style={S.td}>
+                              <div style={{ fontSize: 13, fontWeight: 600, color: "#fff" }}>{tt.icon || ""} {tt.name}</div>
+                              <div style={{ fontSize: 11, color: TEXT2 }}>단위: {tt.unit}</div>
+                            </td>
+                            {[1, 2, 3].map(r => (
+                              <td key={r} style={{ ...S.td, textAlign: "center", padding: "8px" }}>
+                                <input
+                                  style={{ ...smIn({ width: 80, textAlign: "center" }) }}
+                                  placeholder="-"
+                                  value={p.records?.[tt.id]?.[r] ?? ""}
+                                  onChange={e => setPlayerRecord(pIdx, tt.id, r, e.target.value)}
+                                />
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
